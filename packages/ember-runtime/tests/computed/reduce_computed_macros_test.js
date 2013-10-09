@@ -1,5 +1,5 @@
-var map = Ember.EnumerableUtils.map, a_forEach = Ember.ArrayPolyfills.forEach, get = Ember.get, set = Ember.set,
-    obj, sorted, sortProps, items, userFnCalls;
+var map = Ember.EnumerableUtils.map, a_forEach = Ember.ArrayPolyfills.forEach, get = Ember.get, set = Ember.set, setProperties = Ember.setProperties,
+    obj, sorted, sortProps, items, userFnCalls, todos, filtered;
 
 module('Ember.computed.map', {
   setup: function() {
@@ -166,6 +166,23 @@ test("it maps properties", function() {
   });
 
   deepEqual(get(obj, 'mapped'), [1, 3, 2, 5]);
+});
+
+test("it is observerable", function() {
+  var mapped = get(obj, 'mapped'),
+      calls = 0;
+
+  deepEqual(get(obj, 'mapped'), [1, 3, 2, 1]);
+
+  Ember.addObserver(obj, 'mapped.@each', function() {
+    calls++;
+  });
+
+  Ember.run(function() {
+    obj.get('array').pushObject({ v: 5 });
+  });
+
+  equal(calls, 1, 'Ember.computed.mapBy is observerable');
 });
 
 
@@ -620,6 +637,44 @@ function commonSortTests() {
 
     deepEqual(sorted.mapBy('fname'), ['Cersei', 'Jaime', 'Robb'], "Removing from the dependent array updates the sorted array");
   });
+
+  test("distinct items may be sort-equal, although their relative order will not be guaranteed", function() {
+    var jaime, jaimeInDisguise;
+
+    Ember.run(function() {
+      // We recreate jaime and "Cersei" here only for test stability: we want
+      // their guid-ordering to be deterministic
+      jaimeInDisguise = Ember.Object.create({
+        fname: 'Cersei', lname: 'Lannister', age: 34
+      });
+      jaime = Ember.Object.create({
+        fname: 'Jaime', lname: 'Lannister', age: 34
+      });
+      items = get(obj, 'items');
+
+      items.replace(0, 1, jaime);
+      items.replace(1, 1, jaimeInDisguise);
+      sorted = get(obj, 'sortedItems');
+    });
+
+    deepEqual(sorted.mapBy('fname'), ['Cersei', 'Jaime', 'Bran', 'Robb'], "precond - array is initially sorted");
+
+    Ember.run(function() {
+      // comparator will now return 0.
+      // Apparently it wasn't a very good disguise.
+      jaimeInDisguise.set('fname', 'Jaime');
+    });
+
+    deepEqual(sorted.mapBy('fname'), ['Jaime', 'Jaime', 'Bran', 'Robb'], "sorted array is updated");
+
+    Ember.run(function() {
+      // comparator will again return non-zero
+      jaimeInDisguise.set('fname', 'Cersei');
+    });
+
+
+    deepEqual(sorted.mapBy('fname'), ['Cersei', 'Jaime', 'Bran', 'Robb'], "sorted array is updated");
+  });
 }
 
 module('Ember.computed.sort - sortProperties', {
@@ -736,6 +791,28 @@ test("updating an item's sort properties updates the sorted array", function() {
   deepEqual(sorted.mapBy('fname'), ['Jaime', 'Tyrion', 'Bran', 'Robb'], "updating an item's sort properties updates the sorted array");
 });
 
+test("updating several of an item's sort properties updated the sorted array", function() {
+  var sansaInDisguise;
+
+  Ember.run(function() {
+    sorted = get(obj, 'sortedItems');
+    items = get(obj, 'items');
+  });
+
+  sansaInDisguise = items.objectAt(1);
+
+  deepEqual(sorted.mapBy('fname'), ['Cersei', 'Jaime', 'Bran', 'Robb'], "precond - array is initially sorted");
+
+  Ember.run(function() {
+    setProperties(sansaInDisguise, {
+      fname: 'Sansa',
+      lname: 'Stark'
+    });
+  });
+
+  deepEqual(sorted.mapBy('fname'), ['Jaime', 'Bran', 'Robb', 'Sansa'], "updating an item's sort properties updates the sorted array");
+});
+
 test("updating an item's sort properties does not error when binary search does a self compare (#3273)", function() {
   var jaime, cersei;
 
@@ -802,13 +879,13 @@ module('Ember.computed.sort - sort function', {
     Ember.run(function() {
       obj = Ember.Object.createWithMixins({
         items: Ember.A([{
-          fname: "Jaime", lname: "Lannister"
+          fname: "Jaime", lname: "Lannister", age: 34
         }, {
-          fname: "Cersei", lname: "Lannister"
+          fname: "Cersei", lname: "Lannister", age: 34
         }, {
-          fname: "Robb", lname: "Stark"
+          fname: "Robb", lname: "Stark", age: 16
         }, {
-          fname: "Bran", lname: "Stark"
+          fname: "Bran", lname: "Stark", age: 8
         }]),
 
         sortedItems: Ember.computed.sort('items.@each.fname', sortByLnameFname)
@@ -1039,3 +1116,103 @@ test("filtering, sorting and reduce (max) can be combined", function() {
 
   equal(35, get(obj, 'oldestStarkAge'), "chain is updated correctly");
 });
+
+function todo(name, priority) {
+  return Ember.Object.create({name: name, priority: priority});
+}
+
+function priorityComparator(todoA, todoB) {
+  var pa = parseInt(get(todoA, 'priority'), 10),
+      pb = parseInt(get(todoB, 'priority'), 10);
+
+  return pa - pb;
+}
+
+function evenPriorities(todo) {
+  var p = parseInt(get(todo, 'priority'), 10);
+
+  return p % 2 === 0;
+}
+
+module('Ember.arrayComputed - chains', {
+  setup: function() {
+    obj = Ember.Object.createWithMixins({
+      todos: Ember.A([todo('E', 4), todo('D', 3), todo('C', 2), todo('B', 1), todo('A', 0)]),
+      sorted: Ember.computed.sort('todos.@each.priority', priorityComparator),
+      filtered: Ember.computed.filter('sorted.@each.priority', evenPriorities)
+    });
+  },
+  teardown: function() {
+    Ember.run(function() {
+      obj.destroy();
+    });
+  }
+});
+
+test("it can filter and sort when both depend on the same item property", function() {
+  filtered = get(obj, 'filtered');
+  sorted = get(obj, 'sorted');
+  todos = get(obj, 'todos');
+
+  deepEqual(todos.mapProperty('name'), ['E', 'D', 'C', 'B', 'A'], "precond - todos initially correct");
+  deepEqual(sorted.mapProperty('name'), ['A', 'B', 'C', 'D', 'E'], "precond - sorted initially correct");
+  deepEqual(filtered.mapProperty('name'), ['A', 'C', 'E'], "precond - filtered initially correct");
+
+  Ember.run(function() {
+    Ember.beginPropertyChanges();
+    // here we trigger several changes
+    //  A. D.priority 3 -> 6
+    //    1. updated sorted from item property change
+    //      a. remove D; reinsert D
+    //      b. update filtered from sorted change
+    //    2. update filtered from item property change
+    //
+    // If 1.b happens before 2 it should invalidate 2
+    todos.objectAt(1).set('priority', 6);
+    Ember.endPropertyChanges();
+  });
+
+  deepEqual(todos.mapProperty('name'), ['E', 'D', 'C', 'B', 'A'], "precond - todos remain correct");
+  deepEqual(sorted.mapProperty('name'), ['A', 'B', 'C', 'E', 'D'], "precond - sorted updated correctly");
+  deepEqual(filtered.mapProperty('name'), ['A', 'C', 'E', 'D'], "filtered updated correctly");
+});
+
+module('Chaining array and reduced CPs', {
+  setup: function() {
+    Ember.run(function() {
+      userFnCalls = 0;
+      obj = Ember.Object.createWithMixins({
+        array: Ember.A([{ v: 1 }, { v: 3}, { v: 2 }, { v: 1 }]),
+        mapped: Ember.computed.mapBy('array', 'v'),
+        max: Ember.computed.max('mapped'),
+        maxDidChange: Ember.observer(function(){
+          userFnCalls++;
+        },'max')
+      });
+    });
+  },
+  teardown: function() {
+    Ember.run(function() {
+      obj.destroy();
+    });
+  }
+});
+
+test("it computes interdependent array computed properties", function() {
+  var mapped = get(obj, 'mapped');
+
+  equal(get(obj, 'max'), 3, 'sanity - it properly computes the maximum value');
+  equal(userFnCalls, 0, 'observer is not called on initialisation');
+
+  var calls = 0;
+  Ember.addObserver(obj, 'max', function(){ calls++; });
+
+  Ember.run(function() {
+    obj.get('array').pushObject({ v: 5 });
+  });
+
+  equal(get(obj, 'max'), 5, 'maximum value is updated correctly');
+  equal(userFnCalls, 1, 'object defined observers fire');
+  equal(calls, 1, 'runtime created observers fire');
+});
+

@@ -39,6 +39,10 @@ Ember.onLoad('Ember.Handlebars', function(Handlebars) {
       return isSimpleClick(event);
     }
 
+    if (allowedKeys.indexOf("any") >= 0) {
+      return true;
+    }
+
     var allowed = true;
 
     forEach.call(keys, function(key) {
@@ -113,7 +117,9 @@ Ember.onLoad('Ember.Handlebars', function(Handlebars) {
 
     ```javascript
     AController = Ember.Controller.extend({
-      anActionName: function() {}
+      actions: {
+        anActionName: function() {}
+      }
     });
 
     AView = Ember.View.extend({
@@ -135,8 +141,9 @@ Ember.onLoad('Ember.Handlebars', function(Handlebars) {
     </div>
     ```
 
-    Clicking "click me" will trigger the `anActionName` method of the
-    `AController`. In this case, no additional parameters will be passed.
+    Clicking "click me" will trigger the `anActionName` method in the `actions
+    hash of the `AController`. In this case, no additional parameters will be
+    passed.
 
     If you provide additional parameters to the helper:
 
@@ -199,6 +206,16 @@ Ember.onLoad('Ember.Handlebars', function(Handlebars) {
     ```
 
     This way the `{{action}}` will fire when clicking with the alt key pressed down.
+
+    Alternatively, supply "any" to the `allowedKeys` option to accept any combination of modifier keys.
+
+    ```handlebars
+    <script type="text/x-handlebars" data-template-name='a-template'>
+      <div {{action 'anActionName' allowedKeys="any"}}>
+        click me with any key pressed
+      </div>
+    </script>
+    ```
 
     ### Specifying a Target
 

@@ -22,7 +22,7 @@
 
   @class Ember
   @static
-  @version 1.0.0-rc.8
+  @version 1.0.0
 */
 
 if ('undefined' === typeof Ember) {
@@ -49,10 +49,10 @@ Ember.toString = function() { return "Ember"; };
 /**
   @property VERSION
   @type String
-  @default '1.0.0-rc.8'
+  @default '1.0.0'
   @final
 */
-Ember.VERSION = '1.0.0-rc.8';
+Ember.VERSION = '1.0.0';
 
 /**
   Standard environmental variables. You can define these in a global `ENV`
@@ -76,6 +76,32 @@ if ('undefined' === typeof ENV.DISABLE_RANGE_API) {
 Ember.ENV = Ember.ENV || ENV;
 
 Ember.config = Ember.config || {};
+
+/**
+  Hash of enabled Canary features. Add to before creating your application.
+
+  You can also define `ENV.FEATURES` if you need to enable features flagged at runtime.
+
+  @property FEATURES
+  @type Hash
+*/
+
+Ember.FEATURES = Ember.ENV.FEATURES || {};
+
+/**
+  Test that a feature is enabled. Parsed by Ember's build tools to leave
+  experimental features out of beta/stable builds.
+
+  You can define an `ENV.ENABLE_ALL_FEATURES` config to force all features to
+  be enabled.
+
+  @method isEnabled
+  @param {string} feature
+*/
+
+Ember.FEATURES.isEnabled = function(feature) {
+  return Ember.ENV.ENABLE_ALL_FEATURES || Ember.FEATURES[feature];
+};
 
 // ..........................................................
 // BOOTSTRAP
@@ -287,7 +313,7 @@ Ember.Logger = {
 
    @method assert
    @for Ember.Logger
-   @param @param {Boolean} bool Value to test
+   @param {Boolean} bool Value to test
   */
   assert: consoleMethod('assert') || assertPolyfill
 };

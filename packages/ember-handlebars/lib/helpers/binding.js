@@ -91,16 +91,16 @@ function bind(property, options, preserveContext, shouldDisplay, valueNormalizer
   }
 }
 
-function simpleBind(property, options) {
+function simpleBind(currentContext, property, options) {
   var data = options.data,
       view = data.view,
-      currentContext = this,
-      normalized, observer;
+      normalized, observer, pathRoot, output;
 
   normalized = normalizePath(currentContext, property, data);
+  pathRoot = normalized.root;
 
   // Set up observers for observable objects
-  if ('object' === typeof this) {
+  if (pathRoot && ('object' === typeof pathRoot)) {
     if (data.insideGroup) {
       observer = function() {
         Ember.run.once(view, 'rerender');
@@ -132,14 +132,15 @@ function simpleBind(property, options) {
   } else {
     // The object is not observable, so just render it out and
     // be done with it.
-    data.buffer.push(handlebarsGet(currentContext, property, options));
+    output = handlebarsGet(currentContext, property, options);
+    data.buffer.push((output === null || typeof output === 'undefined') ? '' : output);
   }
 }
 
 /**
   @private
 
-  '_triageMustache' is used internally select between a binding and helper for
+  '_triageMustache' is used internally select between a binding, helper, or component for
   the given context. Until this point, it would be hard to determine if the
   mustache is a property reference or a regular helper reference. This triage
   helper resolves that.
@@ -149,18 +150,46 @@ function simpleBind(property, options) {
   @method _triageMustache
   @for Ember.Handlebars.helpers
   @param {String} property Property/helperID to triage
-  @param {Function} fn Context to provide for rendering
+  @param {Object} options hash of template/rendering options
   @return {String} HTML string
 */
-EmberHandlebars.registerHelper('_triageMustache', function(property, fn) {
+EmberHandlebars.registerHelper('_triageMustache', function(property, options) {
   Ember.assert("You cannot pass more than one argument to the _triageMustache helper", arguments.length <= 2);
+
   if (helpers[property]) {
-    return helpers[property].call(this, fn);
+    return helpers[property].call(this, options);
   }
-  else {
-    return helpers.bind.apply(this, arguments);
+
+  if (Ember.FEATURES.isEnabled('container-renderables')) {
+
+    var helper = Ember.Handlebars.resolveHelper(options.data.view.container, property);
+    if (helper) {
+      return helper.call(this, options);
+    }
   }
+
+  return helpers.bind.call(this, property, options);
 });
+
+Ember.Handlebars.resolveHelper = function(container, name) {
+
+  if (!container || name.indexOf('-') === -1) {
+    return;
+  }
+
+  var helper = container.lookup('helper:' + name);
+  if (!helper) {
+    var componentLookup = container.lookup('component-lookup:main');
+    Ember.assert("Could not find 'component-lookup:main' on the provided container, which is necessary for performing component lookups", componentLookup);
+
+    var Component = componentLookup.lookupFactory(name, container);
+    if (Component) {
+      helper = EmberHandlebars.makeViewHelper(Component);
+      container.register('helper:' + name, helper);
+    }
+  }
+  return helper;
+};
 
 /**
   @private
@@ -189,10 +218,10 @@ EmberHandlebars.registerHelper('_triageMustache', function(property, fn) {
 EmberHandlebars.registerHelper('bind', function(property, options) {
   Ember.assert("You cannot pass more than one argument to the bind helper", arguments.length <= 2);
 
-  var context = (options.contexts && options.contexts[0]) || this;
+  var context = (options.contexts && options.contexts.length) ? options.contexts[0] : this;
 
   if (!options.fn) {
-    return simpleBind.call(context, property, options);
+    return simpleBind(context, property, options);
   }
 
   return bind.call(context, property, options, false, exists);
@@ -217,7 +246,7 @@ EmberHandlebars.registerHelper('bind', function(property, options) {
   @return {String} HTML string
 */
 EmberHandlebars.registerHelper('boundIf', function(property, fn) {
-  var context = (fn.contexts && fn.contexts[0]) || this;
+  var context = (fn.contexts && fn.contexts.length) ? fn.contexts[0] : this;
   var func = function(result) {
     var truthy = result && get(result, 'isTruthy');
     if (typeof truthy === 'boolean') { return truthy; }
@@ -350,7 +379,7 @@ EmberHandlebars.registerHelper('unless', function(context, options) {
 
   `bind-attr` supports a special syntax for handling a number of cases unique
   to the `class` DOM element attribute. The `class` attribute combines
-  multiple discreet values into a single attribute as a space-delimited
+  multiple discrete values into a single attribute as a space-delimited
   list of strings. Each string can be:
 
   * a string return value of an object's property.

@@ -1,6 +1,7 @@
 /*globals Handlebars */
 
 require("ember-handlebars/ext");
+require("ember-handlebars/component_lookup");
 
 /**
 @module ember
@@ -73,17 +74,22 @@ function registerComponents(container) {
 function registerComponent(container, name) {
   Ember.assert("You provided a template named 'components/" + name + "', but custom components must include a '-'", name.match(/-/));
 
-  container.injection('component:' + name, 'layout', 'template:components/' + name);
-
   var fullName = 'component:' + name;
+
+  container.injection(fullName, 'layout', 'template:components/' + name);
+
   var Component = container.lookupFactory(fullName);
 
   if (!Component) {
-    container.register('component:' + name, Ember.Component);
+    container.register(fullName, Ember.Component);
     Component = container.lookupFactory(fullName);
   }
 
   Ember.Handlebars.helper(name, Component);
+}
+
+function registerComponentLookup(container) {
+  container.register('component-lookup:main', Ember.ComponentLookup);
 }
 
 /*
@@ -103,9 +109,22 @@ Ember.onLoad('Ember.Application', function(Application) {
     initialize: bootstrap
   });
 
-  Application.initializer({
-    name: 'registerComponents',
-    after: 'domTemplates',
-    initialize: registerComponents
-  });
+  var useNewComponentLookup = false;
+  if (Ember.FEATURES.isEnabled('container-renderables')) {
+    useNewComponentLookup = true;
+  }
+
+  if (useNewComponentLookup) {
+    Application.initializer({
+      name: 'registerComponentLookup',
+      after: 'domTemplates',
+      initialize: registerComponentLookup
+    });
+  } else {
+    Application.initializer({
+      name: 'registerComponents',
+      after: 'domTemplates',
+      initialize: registerComponents
+    });
+  }
 });

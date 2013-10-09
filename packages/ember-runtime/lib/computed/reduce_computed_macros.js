@@ -8,6 +8,7 @@ require('ember-runtime/computed/array_computed');
 var get = Ember.get,
     set = Ember.set,
     guidFor = Ember.guidFor,
+    merge = Ember.merge,
     a_slice = [].slice,
     forEach = Ember.EnumerableUtils.forEach,
     map = Ember.EnumerableUtils.map;
@@ -129,7 +130,7 @@ Ember.computed.min = function (dependentKey) {
 Ember.computed.map = function(dependentKey, callback) {
   var options = {
     addedItem: function(array, item, changeMeta, instanceMeta) {
-      var mapped = callback(item);
+      var mapped = callback.call(this, item);
       array.insertAt(changeMeta.index, mapped);
       return array;
     },
@@ -149,16 +150,15 @@ Ember.computed.map = function(dependentKey, callback) {
 
   ```javascript
   App.Person = Ember.Object.extend({
-    childAges: Ember.computed.mapBy('children', 'age'),
-    minChildAge: Ember.computed.min('childAges')
+    childAges: Ember.computed.mapBy('children', 'age')
   });
 
   var lordByron = App.Person.create({children: []});
-  lordByron.get('childAge'); // []
+  lordByron.get('childAges'); // []
   lordByron.get('children').pushObject({name: 'Augusta Ada Byron', age: 7});
-  lordByron.get('childAge'); // [7]
+  lordByron.get('childAges'); // [7]
   lordByron.get('children').pushObjects([{name: 'Allegra Byron', age: 5}, {name: 'Elizabeth Medora Leigh', age: 8}]);
-  lordByron.get('childAge'); // [7, 5, 8]
+  lordByron.get('childAges'); // [7, 5, 8]
   ```
 
   @method computed.mapBy
@@ -222,7 +222,7 @@ Ember.computed.filter = function(dependentKey, callback) {
     },
 
     addedItem: function(array, item, changeMeta, instanceMeta) {
-      var match = !!callback(item),
+      var match = !!callback.call(this, item),
           filterIndex = instanceMeta.filteredArrayIndexes.addItem(changeMeta.index, match);
 
       if (match) {
@@ -505,7 +505,7 @@ Ember.computed.setDiff = function (setAProperty, setBProperty) {
 };
 
 function binarySearch(array, item, low, high) {
-  var mid, midItem, res;
+  var mid, midItem, res, guidMid, guidItem;
 
   if (arguments.length < 4) { high = get(array, 'length'); }
   if (arguments.length < 3) { low = 0; }
@@ -517,10 +517,18 @@ function binarySearch(array, item, low, high) {
   mid = low + Math.floor((high - low) / 2);
   midItem = array.objectAt(mid);
 
-  if (isProxyContent(item, midItem)) {
+  guidMid = _guidFor(midItem);
+  guidItem = _guidFor(item);
+
+  if (guidMid === guidItem) {
     return mid;
   }
+
   res = this.order(midItem, item);
+  if (res === 0) {
+    res = guidMid < guidItem ? -1 : 1;
+  }
+
 
   if (res < 0) {
     return this.binarySearch(array, item, mid+1, high);
@@ -530,13 +538,11 @@ function binarySearch(array, item, low, high) {
 
   return mid;
 
-
-  function isProxyContent(searchItem, item) {
-    if (Ember.ObjectProxy.detectInstance(searchItem)) {
-      return guidFor(get(searchItem, 'content')) === guidFor(item);
+  function _guidFor(item) {
+    if (Ember.ObjectProxy.detectInstance(item)) {
+      return guidFor(get(item, 'content'));
     }
-
-    return false;
+    return guidFor(item);
   }
 }
 
@@ -580,7 +586,7 @@ function binarySearch(array, item, low, high) {
   ]});
 
   todoList.get('sortedTodos'); // [{name:'Documentation', priority:3}, {name:'Release', priority:1}, {name:'Unit Test', priority:2}]
-  todoList.get('priroityTodos'); // [{name:'Release', priority:1}, {name:'Unit Test', priority:2}, {name:'Documentation', priority:3}]
+  todoList.get('priorityTodos'); // [{name:'Release', priority:1}, {name:'Unit Test', priority:2}, {name:'Documentation', priority:3}]
   ```
 
   @method computed.sort
@@ -678,9 +684,8 @@ Ember.computed.sort = function (itemsKey, sortDefinition) {
     removedItem: function (array, item, changeMeta, instanceMeta) {
       var proxyProperties, index, searchItem;
 
-      if (changeMeta.keyChanged) {
-        proxyProperties = { content: item };
-        proxyProperties[changeMeta.keyChanged] = changeMeta.previousValue;
+      if (changeMeta.previousValues) {
+        proxyProperties = merge({ content: item }, changeMeta.previousValues);
 
         searchItem = Ember.ObjectProxy.create(proxyProperties);
      } else {

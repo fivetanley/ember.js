@@ -77,6 +77,7 @@ module("Basic Routing", {
 
       Ember.TEMPLATES = {};
     });
+    Ember.TESTING_DEPRECATION = false;
   }
 });
 
@@ -92,7 +93,7 @@ test("warn on URLs not included in the route set", function () {
   var oldAssert = Ember.assert;
   Ember.assert = function(message, test){
     ok(true, test);
-    equal("The URL '/what-is-this-i-dont-even' did match any routes in your application", message);
+    equal("The URL '/what-is-this-i-dont-even' did not match any routes in your application", message);
   };
 
   Ember.run(function(){
@@ -370,8 +371,6 @@ test("The Homepage with a `setupController` hook", function() {
 
   bootApplication();
 
-  container.register('controller:home', Ember.Controller.extend());
-
   equal(Ember.$('ul li', '#qunit-fixture').eq(2).text(), "Sunday: Noon to 6pm", "The template was rendered with the hours context");
 });
 
@@ -464,8 +463,6 @@ test("The Homepage with a `setupController` hook modifying other controllers", f
 
   bootApplication();
 
-  container.register('controller:home', Ember.Controller.extend());
-
   equal(Ember.$('ul li', '#qunit-fixture').eq(2).text(), "Sunday: Noon to 6pm", "The template was rendered with the hours context");
 });
 
@@ -519,8 +516,6 @@ test("The Homepage getting its controller context via model", function() {
   );
 
   bootApplication();
-
-  container.register('controller:home', Ember.Controller.extend());
 
   equal(Ember.$('ul li', '#qunit-fixture').eq(2).text(), "Sunday: Noon to 6pm", "The template was rendered with the hours context");
 });
@@ -754,7 +749,7 @@ asyncTest("The Special page returning an error invokes SpecialRoute's error hand
   handleURLRejectsWith('/specials/1', 'Setup error');
 });
 
-asyncTest("ApplicationRoute's default error handler can be overridden", function() {
+function testOverridableErrorHandler(handlersName) {
   Router.map(function() {
     this.route("home", { path: "/" });
     this.resource("special", { path: "/specials/:menu_item_id" });
@@ -773,14 +768,15 @@ asyncTest("ApplicationRoute's default error handler can be overridden", function
     }
   });
 
-  App.ApplicationRoute = Ember.Route.extend({
-    actions: {
-      error: function(reason) {
-        equal(reason, 'Setup error', "error was correctly passed to custom ApplicationRoute handler");
-        start();
-      }
+  var attrs = {};
+  attrs[handlersName] = {
+    error: function(reason) {
+      equal(reason, 'Setup error', "error was correctly passed to custom ApplicationRoute handler");
+      start();
     }
-  });
+  };
+
+  App.ApplicationRoute = Ember.Route.extend(attrs);
 
   App.SpecialRoute = Ember.Route.extend({
     setup: function() {
@@ -791,6 +787,15 @@ asyncTest("ApplicationRoute's default error handler can be overridden", function
   bootApplication();
 
   handleURLRejectsWith("/specials/1", "Setup error");
+}
+
+asyncTest("ApplicationRoute's default error handler can be overridden", function() {
+  testOverridableErrorHandler('actions');
+});
+
+asyncTest("ApplicationRoute's default error handler can be overridden (with DEPRECATED `events`)", function() {
+  Ember.TESTING_DEPRECATION = true;
+  testOverridableErrorHandler('events');
 });
 
 asyncTest("Moving from one page to another triggers the correct callbacks", function() {
@@ -1017,8 +1022,6 @@ asyncTest("Events are triggered on the current state when defined in `actions` o
 
   bootApplication();
 
-  container.register('controller:home', Ember.Controller.extend());
-
   var actionId = Ember.$("#qunit-fixture a").data("ember-action");
   var action = Ember.Handlebars.ActionHelper.registeredActions[actionId];
   var event = new Ember.$.Event("click");
@@ -1082,7 +1085,6 @@ asyncTest("Events are triggered on the current state when defined in `events` ob
         // Using Ember.copy removes any private Ember vars which older IE would be confused by
         deepEqual(Ember.copy(obj, true), { name: "Tom Dale" }, "the context is correct");
         start();
-        Ember.TESTING_DEPRECATION = false;
       }
     }
   });
@@ -1092,8 +1094,6 @@ asyncTest("Events are triggered on the current state when defined in `events` ob
   );
 
   bootApplication();
-
-  container.register('controller:home', Ember.Controller.extend());
 
   var actionId = Ember.$("#qunit-fixture a").data("ember-action");
   var action = Ember.Handlebars.ActionHelper.registeredActions[actionId];
@@ -1118,7 +1118,6 @@ asyncTest("Events defined in `events` object are triggered on the current state 
         // Using Ember.copy removes any private Ember vars which older IE would be confused by
         deepEqual(Ember.copy(obj, true), { name: "Tom Dale" }, "the context is correct");
         start();
-        Ember.TESTING_DEPRECATION = false;
       }
     }
   });
@@ -1210,7 +1209,6 @@ asyncTest("Events are triggered on the controller if a matching action name is i
       ok (stateIsNotCalled, "an event on the state is not triggered");
       deepEqual(context, { name: "Tom Dale" }, "an event with context is passed");
       start();
-      Ember.TESTING_DEPRECATION = false;
     }
   });
 
@@ -1867,7 +1865,7 @@ test("Router accounts for rootURL on page load when using history location", fun
 
 test("HistoryLocation has the correct rootURL on initState and webkit doesn't fire popstate on page load", function() {
   expect(2);
-  var rootURL = window.location.pathname + 'app',
+  var rootURL = window.location.pathname,
       history,
       HistoryTestLocation;
 
@@ -2432,6 +2430,47 @@ test("Aborting/redirecting the transition in `willTransition` prevents LoadingRo
   Ember.run(router, 'transitionTo', 'nork');
   Ember.run(deferred.resolve);
 });
+
+if (Ember.FEATURES.isEnabled("ember-routing-didTransition-hook")) {
+  test("`didTransition` event fires on the router", function() {
+    expect(3);
+
+    Router.map(function(){
+      this.route("nork");
+    });
+
+    router = container.lookup('router:main');
+
+    router.one('didTransition', function(){
+      ok(true, 'didTransition fired on initial routing');
+    });
+
+    bootApplication();
+
+    router.one('didTransition', function(){
+      ok(true, 'didTransition fired on the router');
+      equal(router.get('url'), "/nork", 'The url property is updated by the time didTransition fires');
+    });
+
+    Ember.run(router, 'transitionTo', 'nork');
+  });
+  test("`didTransition` can be reopened", function() {
+    expect(1);
+
+    Router.map(function(){
+      this.route("nork");
+    });
+
+    Router.reopen({
+      didTransition: function(){
+        this._super.apply(this, arguments);
+        ok(true, 'reopened didTransition was called');
+      }
+    });
+
+    bootApplication();
+  });
+}
 
 test("Actions can be handled by inherited action handlers", function() {
 

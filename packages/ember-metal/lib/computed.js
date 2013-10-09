@@ -560,7 +560,7 @@ function registerComputedWithProperties(name, macro) {
 }
 
 /**
-  A computed property that returns true of the value of the dependent
+  A computed property that returns true if the value of the dependent
   property is null, an empty string, empty array, or empty function.
 
   Note: When using `Ember.computed.empty` to watch an array make sure to
@@ -590,7 +590,7 @@ registerComputed('empty', function(dependentKey) {
 });
 
 /**
-  A computed property that returns true of the value of the dependent
+  A computed property that returns true if the value of the dependent
   property is NOT null, an empty string, empty array, or empty function.
 
   Example
@@ -616,7 +616,7 @@ registerComputed('notEmpty', function(dependentKey) {
 });
 
 /**
-  A computed property that returns true of the value of the dependent
+  A computed property that returns true if the value of the dependent
   property is null or undefined. This avoids errors from JSLint complaining
   about use of ==, which can be technically confusing.
 
@@ -655,9 +655,9 @@ registerComputed('none', function(dependentKey) {
     isAnonymous: Ember.computed.not('loggedIn')
   });
   var user = User.create({loggedIn: false});
-  user.get('isAnonymous'); // false
-  user.set('loggedIn', true);
   user.get('isAnonymous'); // true
+  user.set('loggedIn', true);
+  user.get('isAnonymous'); // false
   ```
 
   @method computed.not
@@ -742,7 +742,7 @@ registerComputed('match', function(dependentKey, regexp) {
   var hampster = Hampster.create();
   hampster.get('napTime'); // false
   hampster.set('state', 'sleepy');
-  hampster.get('napTime'); // false
+  hampster.get('napTime'); // true
   hampster.set('state', 'hungry');
   hampster.get('napTime'); // false
   ```

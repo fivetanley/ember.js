@@ -19,7 +19,7 @@ require("ember-routing/system/dsl");
   @namespace Ember
   @extends Ember.Object
 */
-Ember.Router = Ember.Object.extend({
+Ember.Router = Ember.Object.extend(Ember.Evented, {
   location: 'hash',
 
   init: function() {
@@ -63,6 +63,12 @@ Ember.Router = Ember.Object.extend({
     set(appController, 'currentRouteName', infos[infos.length - 1].name);
 
     this.notifyPropertyChange('url');
+
+    if (Ember.FEATURES.isEnabled("ember-routing-didTransition-hook")) {
+      // Put this in the runloop so url will be accurate. Seems
+      // less surprising than didTransition being out of sync.
+      Ember.run.once(this, this.trigger, 'didTransition');
+    }
 
     if (get(this, 'namespace').LOG_TRANSITIONS) {
       Ember.Logger.log("Transitioned into '" + path + "'");
@@ -172,8 +178,12 @@ Ember.Router = Ember.Object.extend({
 
       if (name === 'application') {
         // Inject default `error` handler.
-        handler.events = handler.events || {};
-        handler.events.error = handler.events.error || Ember.Router._defaultErrorHandler;
+        // Note: `events` is deprecated, but we'll let the
+        // deprecation warnings be handled at event-handling time rather
+        // than duplicating that logic here.
+        var actions = handler._actions || handler.events;
+        if (!actions) { actions = handler._actions = {}; }
+        actions.error = actions.error || Ember.Router._defaultErrorHandler;
       }
 
       handler.routeName = name;
@@ -216,12 +226,16 @@ Ember.Router = Ember.Object.extend({
     args = [].slice.call(args);
     args[0] = args[0] || '/';
 
-    var passedName = args[0], name, self = this;
+    var passedName = args[0], name, self = this,
+      isQueryParamsOnly = false;
 
-    if (passedName.charAt(0) === '/') {
+    if (Ember.FEATURES.isEnabled("query-params")) {
+      isQueryParamsOnly = (args.length === 1 && args[0].hasOwnProperty('queryParams'));
+    }
+
+    if (!isQueryParamsOnly && passedName.charAt(0) === '/') {
       name = passedName;
-    } else {
-
+    } else if (!isQueryParamsOnly) {
       if (!this.router.hasRoute(passedName)) {
         name = args[0] = passedName + '.index';
       } else {
@@ -240,8 +254,10 @@ Ember.Router = Ember.Object.extend({
 
     transitionPromise.then(function(route) {
       self._transitionCompleted(route);
-    }, function(error){
-      Ember.assert("The URL '" + error.message + "' did match any routes in your application", error.name !== "UnrecognizedURLError");
+    }, function(error) {
+      if (error.name === "UnrecognizedURLError") {
+        Ember.assert("The URL '" + error.message + "' did not match any routes in your application");
+      }
     });
 
     // We want to return the configurable promise object
@@ -347,10 +363,7 @@ Ember.Router.reopenClass({
   },
 
   _defaultErrorHandler: function(error, transition) {
-    Ember.Logger.error('Error while loading route:', error);
-
-    // Using setTimeout allows us to escape from the Promise's try/catch block
-    setTimeout(function() { throw error; });
+    Ember.Logger.assert(false, 'Error while loading route: ' + Ember.inspect(error));
   },
 
   _routePath: function(handlerInfos) {

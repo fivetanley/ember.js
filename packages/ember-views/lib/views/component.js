@@ -58,8 +58,10 @@ var get = Ember.get, set = Ember.set, isNone = Ember.isNone;
 
   ```javascript
   App.AppProfileComponent = Ember.Component.extend({
-    hello: function(name) {
-      console.log("Hello", name);
+    actions: {
+      hello: function(name) {
+        console.log("Hello", name);
+      }
     }
   });
   ```
@@ -112,7 +114,8 @@ Ember.Component = Ember.View.extend(Ember.TargetActionSupport, {
       view.appendChild(Ember.View, {
         isVirtual: true,
         tagName: '',
-        template: get(this, 'template'),
+        _contextView: parentView,
+        template: template,
         context: get(parentView, 'context'),
         controller: get(parentView, 'controller'),
         templateData: { keywords: parentView.cloneKeywords() }
@@ -171,8 +174,10 @@ Ember.Component = Ember.View.extend(Ember.TargetActionSupport, {
     });
 
     App.CategoriesController = Ember.Controller.extend({
-      didClickCategory: function(category) {
-        //Do something with the node/category that was clicked
+      actions: {
+        didClickCategory: function(category) {
+          //Do something with the node/category that was clicked
+        }
       }
     });
     ```

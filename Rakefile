@@ -2,6 +2,8 @@ require 'bundler/setup'
 require 'ember-dev/tasks'
 require './lib/ember/version'
 require 'zlib'
+require 'fileutils'
+require 'pathname'
 
 ### RELEASE TASKS ###
 
@@ -116,7 +118,7 @@ namespace :release do
       min_gz = Zlib::Deflate.deflate(File.read("dist/ember.min.js")).bytes.count / 1024
 
       about.gsub!(/(\d+\.\d+\.\d+-rc(?:\.?\d+)?)/, Ember::VERSION)
-      about.gsub!(/minified \d+kb/, "minified #{min_gz}kb")
+      about.gsub!(/min \+ gzip \d+kb/, "min + gzip  #{min_gz}kb")
 
       open("tmp/website/source/about.html.erb", "w") { |f| f.write about }
     end
@@ -156,17 +158,25 @@ namespace :release do
   task :deploy => ['ember:release:deploy', 'starter_kit:deploy', 'website:deploy']
 end
 
-task :publish_build => :dist do
-  root = File.dirname(__FILE__) + '/dist/'
+task :publish_build => [:dist, :docs] do
+  root_dir = Pathname.new(__FILE__).dirname
+  dist_dir = root_dir.join('dist')
+
+  FileUtils.cp root_dir.join('docs', 'build', 'data.json'),
+               dist_dir.join('ember-docs.json')
+
+  files = %w{ember.js ember-runtime.js ember-docs.json}
+
   EmberDev::Publish.to_s3({
     :access_key_id => ENV['S3_ACCESS_KEY_ID'],
     :secret_access_key => ENV['S3_SECRET_ACCESS_KEY'],
     :bucket_name => ENV['S3_BUCKET_NAME'],
-    :files => ['ember.js', 'ember-runtime.js'].map { |f| root + f },
-    :exclude_minified => [ 'ember.prod.js' ].map { |f| root + f }
+
+    :files => files.map { |f| dist_dir.join(f) }
   })
 end
 
+task :docs => "ember:docs"
 task :clean => "ember:clean"
 task :dist => "ember:dist"
 task :test, [:suite] => "ember:test"

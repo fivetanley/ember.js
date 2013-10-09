@@ -100,6 +100,13 @@ function wait(app, value) {
       if (routerIsLoading) { return; }
       if (Test.pendingAjaxRequests) { return; }
       if (Ember.run.hasScheduledTimers() || Ember.run.currentRunLoop) { return; }
+      if (Ember.FEATURES.isEnabled("ember-testing-wait-hooks")) {
+        if (Test.waiters && Test.waiters.any(function(waiter) {
+          var context = waiter[0];
+          var callback = waiter[1];
+          return !callback.apply(context);
+        })) { return; }
+      }
 
       clearInterval(watcher);
 
@@ -187,7 +194,7 @@ function chain(app, promise, fn) {
 *
 * @method visit
 * @param {String} url the name of the route
-* @returns {RSVP.Promise}
+* @return {RSVP.Promise}
 */
 helper('visit', visit);
 
@@ -205,7 +212,7 @@ helper('visit', visit);
 *
 * @method click
 * @param {String} selector jQuery selector for finding element on the DOM
-* @returns {RSVP.Promise}
+* @return {RSVP.Promise}
 */
 helper('click', click);
 
@@ -224,7 +231,7 @@ helper('click', click);
 * @param {String} selector jQuery selector for finding element on the DOM
 * @param {String} the type of key event, e.g. `keypress`, `keydown`, `keyup`
 * @param {Number} the keyCode of the simulated key event
-* @returns {RSVP.Promise}
+* @return {RSVP.Promise}
 */
 helper('keyEvent', keyEvent);
 
@@ -243,7 +250,7 @@ helper('keyEvent', keyEvent);
 * @param {String} selector jQuery selector finding an input element on the DOM
 * to fill text with
 * @param {String} text text to place inside the input element
-* @returns {RSVP.Promise}
+* @return {RSVP.Promise}
 */
 helper('fillIn', fillIn);
 
@@ -259,7 +266,7 @@ helper('fillIn', fillIn);
 *
 * @method find
 * @param {String} selector jQuery string selector for element lookup
-* @returns {Object} jQuery object representing the results of the query
+* @return {Object} jQuery object representing the results of the query
 */
 helper('find', find);
 

@@ -1,10 +1,12 @@
 require('ember-metal/computed');
 require('ember-runtime/mixins/array');
 
-var get = Ember.get,
+var e_get = Ember.get,
     set = Ember.set,
     guidFor = Ember.guidFor,
     metaFor = Ember.meta,
+    propertyWillChange = Ember.propertyWillChange,
+    propertyDidChange = Ember.propertyDidChange,
     addBeforeObserver = Ember.addBeforeObserver,
     removeBeforeObserver = Ember.removeBeforeObserver,
     addObserver = Ember.addObserver,
@@ -17,6 +19,16 @@ var get = Ember.get,
     // testing, but there's no particular reason why it should be disallowed.
     eachPropertyPattern = /^(.*)\.@each\.(.*)/,
     doubleEachPropertyPattern = /(.*\.@each){2,}/;
+
+function get(obj, key) {
+  if (Ember.FEATURES.isEnabled('reduceComputedSelf')) {
+    if (key === '@self') {
+      return obj;
+    }
+  }
+
+  return e_get(obj, key);
+}
 
 /*
   Tracks changes to dependent arrays, as well as to properties of items in
@@ -59,11 +71,13 @@ function ItemPropertyObserverContext (dependentArray, index, trackedArray) {
   this.trackedArray = trackedArray;
   this.beforeObserver = null;
   this.observer = null;
+
+  this.destroyed = false;
 }
 
 DependentArraysObserver.prototype = {
   setValue: function (newValue) {
-    this.instanceMeta.setValue(newValue);
+    this.instanceMeta.setValue(newValue, true);
   },
   getValue: function () {
     return this.instanceMeta.getValue();
@@ -128,6 +142,7 @@ DependentArraysObserver.prototype = {
       if (operation === Ember.TrackedArray.DELETE) { return; }
 
       forEach(observerContexts, function (observerContext) {
+        observerContext.destroyed = true;
         beforeObserver = observerContext.beforeObserver;
         observer = observerContext.observer;
         item = observerContext.item;
@@ -152,11 +167,10 @@ DependentArraysObserver.prototype = {
     var dependentArrayObserver = this;
 
     observerContext.beforeObserver = function (obj, keyName) {
-      dependentArrayObserver.updateIndexes(observerContext.trackedArray, observerContext.dependentArray);
-      return dependentArrayObserver.itemPropertyWillChange(obj, keyName, observerContext.dependentArray, observerContext.index);
+      return dependentArrayObserver.itemPropertyWillChange(obj, keyName, observerContext.dependentArray, observerContext);
     };
     observerContext.observer = function (obj, keyName) {
-      return dependentArrayObserver.itemPropertyDidChange(obj, keyName, observerContext.dependentArray, observerContext.index);
+      return dependentArrayObserver.itemPropertyDidChange(obj, keyName, observerContext.dependentArray, observerContext);
     };
   },
 
@@ -164,14 +178,14 @@ DependentArraysObserver.prototype = {
     this.trackedArraysByGuid[dependentKey] = new Ember.TrackedArray(observerContexts);
   },
 
-  addTransformation: function (dependentKey, index, newItems) {
+  trackAdd: function (dependentKey, index, newItems) {
     var trackedArray = this.trackedArraysByGuid[dependentKey];
     if (trackedArray) {
       trackedArray.addItems(index, newItems);
     }
   },
 
-  removeTransformation: function (dependentKey, index, removedCount) {
+  trackRemove: function (dependentKey, index, removedCount) {
     var trackedArray = this.trackedArraysByGuid[dependentKey];
 
     if (trackedArray) {
@@ -212,10 +226,10 @@ DependentArraysObserver.prototype = {
         sliceIndex,
         observerContexts;
 
-    observerContexts = this.removeTransformation(dependentKey, index, removedCount);
-
+    observerContexts = this.trackRemove(dependentKey, index, removedCount);
 
     function removeObservers(propertyKey) {
+      observerContexts[sliceIndex].destroyed = true;
       removeBeforeObserver(item, propertyKey, this, observerContexts[sliceIndex].beforeObserver);
       removeObserver(item, propertyKey, this, observerContexts[sliceIndex].observer);
     }
@@ -223,7 +237,7 @@ DependentArraysObserver.prototype = {
     for (sliceIndex = removedCount - 1; sliceIndex >= 0; --sliceIndex) {
       itemIndex = index + sliceIndex;
       item = dependentArray.objectAt(itemIndex);
-      
+
       forEach(itemPropertyKeys, removeObservers, this);
 
       changeMeta = createChangeMeta(dependentArray, item, itemIndex, this.instanceMeta.propertyName, this.cp);
@@ -243,8 +257,8 @@ DependentArraysObserver.prototype = {
 
     forEach(dependentArray.slice(index, index + addedCount), function (item, sliceIndex) {
       if (itemPropertyKeys) {
-        observerContext = 
-          observerContexts[sliceIndex] = 
+        observerContext =
+          observerContexts[sliceIndex] =
           this.createPropertyObserverContext(dependentArray, index + sliceIndex, this.trackedArraysByGuid[dependentKey]);
         forEach(itemPropertyKeys, function (propertyKey) {
           addBeforeObserver(item, propertyKey, this, observerContext.beforeObserver);
@@ -257,32 +271,38 @@ DependentArraysObserver.prototype = {
         this.instanceMeta.context, this.getValue(), item, changeMeta, this.instanceMeta.sugarMeta));
     }, this);
 
-    this.addTransformation(dependentKey, index, observerContexts);
+    this.trackAdd(dependentKey, index, observerContexts);
   },
 
-  itemPropertyWillChange: function (obj, keyName, array, index) {
-    var changeId = guidFor(obj)+":"+keyName;
+  itemPropertyWillChange: function (obj, keyName, array, observerContext) {
+    var guid = guidFor(obj);
 
-    if (!this.changedItems[changeId]) {
-      this.changedItems[changeId] = {
-        array:          array,  
-        index:          index,
-        obj:            obj,
-        keyChanged:     keyName,
-        previousValue:  get(obj, keyName)
+    if (!this.changedItems[guid]) {
+      this.changedItems[guid] = {
+        array:            array,
+        observerContext:  observerContext,
+        obj:              obj,
+        previousValues:   {}
       };
     }
+
+    this.changedItems[guid].previousValues[keyName] = get(obj, keyName);
   },
 
-  itemPropertyDidChange: function(obj, keyName, array, index) {
-    Ember.run.once(this, 'flushChanges');
+  itemPropertyDidChange: function(obj, keyName, array, observerContext) {
+    this.flushChanges();
   },
 
   flushChanges: function() {
     var changedItems = this.changedItems, key, c, changeMeta;
+
     for (key in changedItems) {
       c = changedItems[key];
-      changeMeta = createChangeMeta(c.array, c.obj, c.index, this.instanceMeta.propertyName, this.cp, c.keyChanged, c.previousValue);
+      if (c.observerContext.destroyed) { continue; }
+
+      this.updateIndexes(c.observerContext.trackedArray, c.observerContext.dependentArray);
+
+      changeMeta = createChangeMeta(c.array, c.obj, c.observerContext.index, this.instanceMeta.propertyName, this.cp, c.previousValues);
       this.setValue(
         this.callbacks.removedItem.call(this.instanceMeta.context, this.getValue(), c.obj, changeMeta, this.instanceMeta.sugarMeta));
       this.setValue(
@@ -292,18 +312,19 @@ DependentArraysObserver.prototype = {
   }
 };
 
-function createChangeMeta(dependentArray, item, index, propertyName, property, key, previousValue) {
+function createChangeMeta(dependentArray, item, index, propertyName, property, previousValues) {
   var meta = {
     arrayChanged: dependentArray,
     index: index,
     item: item,
     propertyName: propertyName,
-    property: property,
-    // previous value is only available for item property changes!
-    previousValue: previousValue
+    property: property
   };
 
-  if (key) { meta.keyChanged = key; }
+  if (previousValues) {
+    // previous values only available for item property changes
+    meta.previousValues = previousValues;
+  }
 
   return meta;
 }
@@ -351,11 +372,21 @@ ReduceComputedPropertyInstanceMeta.prototype = {
     }
   },
 
-  setValue: function(newValue) {
+  setValue: function(newValue, triggerObservers) {
     // This lets sugars force a recomputation, handy for very simple
     // implementations of eg max.
     if (newValue !== undefined) {
+      var fireObservers = triggerObservers && (newValue !== this.cache[this.propertyName]);
+
+      if (fireObservers) {
+        propertyWillChange(this.context, this.propertyName);
+      }
+
       this.cache[this.propertyName] = newValue;
+
+      if (fireObservers) {
+        propertyDidChange(this.context, this.propertyName);
+      }
     } else {
       delete this.cache[this.propertyName];
     }
@@ -481,13 +512,11 @@ ReduceComputedProperty.prototype._instanceMeta = function (context, propertyName
 };
 
 ReduceComputedProperty.prototype.initialValue = function () {
-  switch (typeof this.options.initialValue) {
-    case 'undefined':
-      throw new Error("reduce computed properties require an initial value: did you forget to pass one to Ember.reduceComputed?");
-    case  'function':
-      return this.options.initialValue();
-    default:
-      return this.options.initialValue;
+  if (typeof this.options.initialValue === 'function') {
+    return this.options.initialValue();
+  }
+  else {
+    return this.options.initialValue;
   }
 };
 
@@ -540,7 +569,7 @@ ReduceComputedProperty.prototype.property = function () {
   If there are more than one arguments the first arguments are
   considered to be dependent property keys. The last argument is
   required to be an options object. The options object can have the
-  following four properties.
+  following four properties:
 
   `initialValue` - A value or function that will be used as the initial
   value for the computed. If this property is a function the result of calling
@@ -601,15 +630,15 @@ ReduceComputedProperty.prototype.property = function () {
 
   For property changes triggered on an item property change (when
   depKey is something like `someArray.@each.someProperty`),
-  `changeMeta` may also contain the followng properties:
+  `changeMeta` will also contain the following property:
 
-    - `keyChanged` the name of the property on the item that changed
-    - `previousValue` the previous value of item.get(keyChanged)
+    - `previousValues` an object whose keys are the properties that changed on
+    the item, and whose values are the item's previous values.
 
-  These properties are important because Ember coalesces item
-  property changes via Ember.run.once. This means that by the time
-  removedItem gets called, item has the new value, but you may need
-  the previous value (eg for sorting & filtering).
+  `previousValues` is important Ember coalesces item property changes via
+  Ember.run.once. This means that by the time removedItem gets called, item has
+  the new values, but you may need the previous value (eg for sorting &
+  filtering).
 
   `instanceMeta` - An object that can be used to store meta
   information needed for calculating your computed. For example a
@@ -620,6 +649,12 @@ ReduceComputedProperty.prototype.property = function () {
   value. It is acceptable to not return anything (ie return undefined)
   to invalidate the computation. This is generally not a good idea for
   arrayComputed but it's used in eg max and min.
+
+  Note that observers will be fired if either of these functions return a value
+  that differs from the accumulated value.  When returning an object that
+  mutates in response to array changes, for example an array that maps
+  everything from some other array (see `Ember.computed.map`), it is usually
+  important that the *same* array be returned to avoid accidentally triggering observers.
 
   Example
 
@@ -641,11 +676,42 @@ ReduceComputedProperty.prototype.property = function () {
   };
   ```
 
+  Dependent keys may refer to `@self` to observe changes to the object itself,
+  which must be array-like, rather than a property of the object.  This is
+  mostly useful for array proxies, to ensure objects are retrieved via
+  `objectAtContent`.  This is how you could sort items by properties defined on an item controller.
+
+  Example
+
+  ```javascript
+  App.PeopleController = Ember.ArrayController.extend({
+    itemController: 'person',
+
+    sortedPeople: Ember.computed.sort('@self.@each.reversedName', function(personA, personB) {
+      // `reversedName` isn't defined on Person, but we have access to it via
+      // the item controller App.PersonController.  If we'd used
+      // `content.@each.reversedName` above, we would be getting the objects
+      // directly and not have access to `reversedName`.
+      //
+      var reversedNameA = get(personA, 'reversedName'),
+          reversedNameB = get(personB, 'reversedName');
+
+      return Ember.compare(reversedNameA, reversedNameB);
+    })
+  });
+
+  App.PersonController = Ember.ObjectController.extend({
+    reversedName: function () {
+      return reverse(get(this, 'name'));
+    }.property('name')
+  })
+  ```
+
   @method reduceComputed
   @for Ember
   @param {String} [dependentKeys*]
   @param {Object} options
-  @returns {Ember.ComputedProperty}
+  @return {Ember.ComputedProperty}
 */
 Ember.reduceComputed = function (options) {
   var args;
@@ -659,7 +725,7 @@ Ember.reduceComputed = function (options) {
     throw new Error("Reduce Computed Property declared without an options hash");
   }
 
-  if (!options.initialValue) {
+  if (!('initialValue' in options)) {
     throw new Error("Reduce Computed Property declared without an initial value");
   }
 
