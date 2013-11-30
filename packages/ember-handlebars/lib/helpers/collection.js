@@ -1,5 +1,3 @@
-/*globals Handlebars */
-
 // TODO: Don't require all of this module
 require('ember-handlebars');
 require('ember-handlebars/helpers/view');
@@ -166,7 +164,7 @@ Ember.Handlebars.registerHelper('collection', function(path, options) {
     var controller = data.keywords.controller;
     Ember.assert('You specified an itemView, but the current context has no container to look the itemView up in. This probably means that you created a view manually, instead of through the container. Instead, use container.lookup("view:viewName"), which will properly instantiate your view.', controller && controller.container);
     var container = controller.container;
-    itemViewClass = container.resolve('view:' + Ember.String.camelize(hash.itemView));
+    itemViewClass = container.resolve('view:' + hash.itemView);
     Ember.assert('You specified the itemView ' + hash.itemView + ", but it was not found at " + container.describe("view:" + hash.itemView) + " (and it was not registered in the container)", !!itemViewClass);
   } else if (hash.itemViewClass) {
     itemViewClass = handlebarsGet(collectionPrototype, hash.itemViewClass, options);
@@ -201,7 +199,7 @@ Ember.Handlebars.registerHelper('collection', function(path, options) {
   }
 
   var emptyViewClass;
-  if (inverse && inverse !== Handlebars.VM.noop) {
+  if (inverse && inverse !== Ember.Handlebars.VM.noop) {
     emptyViewClass = get(collectionPrototype, 'emptyViewClass');
     emptyViewClass = emptyViewClass.extend({
           template: inverse,

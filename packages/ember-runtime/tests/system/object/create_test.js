@@ -23,7 +23,7 @@ test("sets up mandatory setters for watched simple properties", function() {
   var MyClass = Ember.Object.extend({
     foo: null,
     bar: null,
-    fooDidChange: Ember.observer(function() {}, 'foo')
+    fooDidChange: Ember.observer('foo', function() {})
   });
 
   var o = MyClass.create({foo: 'bar', bar: 'baz'});
@@ -102,6 +102,31 @@ test("property name is the same as own prototype property", function() {
   });
 
   equal(MyClass.create().toString(), 'MyClass', "should inherit property from the arguments of `Ember.Object.create`");
+});
+
+test("inherits properties from passed in Ember.Object", function() {
+  var baseObj = Ember.Object.create({ foo: 'bar' }),
+      secondaryObj = Ember.Object.create(baseObj);
+
+  equal(secondaryObj.foo, baseObj.foo, "Em.O.create inherits properties from Ember.Object parameter");
+});
+
+test("throws if you try to pass anything a string as a parameter", function(){
+  var expected = "Ember.Object.create only accepts an objects.";
+
+  throws(function() {
+    var o = Ember.Object.create("some-string");
+  }, expected);
+});
+
+test("Ember.Object.create can take undefined as a parameter", function(){
+  var o = Ember.Object.create(undefined);
+  deepEqual(Ember.Object.create(), o);
+});
+
+test("Ember.Object.create can take null as a parameter", function(){
+  var o = Ember.Object.create(null);
+  deepEqual(Ember.Object.create(), o);
 });
 
 module('Ember.Object.createWithMixins');
@@ -213,9 +238,9 @@ test('create should not break observed values', function() {
       return this;
     },
 
-    valueDidChange: Ember.observer(function() {
+    valueDidChange: Ember.observer('value', function() {
       this._count++;
-    }, 'value')
+    })
   });
 
   var obj = CountObject.createWithMixins({ value: 'foo' });

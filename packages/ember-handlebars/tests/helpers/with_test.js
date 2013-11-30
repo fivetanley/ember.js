@@ -60,6 +60,57 @@ test("updating a property on the view should update the HTML", function() {
   equal(view.$().text(), "Señorette Engineer: Tom Dale", "should be properly scoped after updating");
 });
 
+module("Multiple Handlebars {{with}} helpers with 'as'", {
+  setup: function() {
+    Ember.lookup = lookup = { Ember: Ember };
+
+    view = Ember.View.create({
+      template: Ember.Handlebars.compile("Admin: {{#with admin as person}}{{person.name}}{{/with}} User: {{#with user as person}}{{person.name}}{{/with}}"),
+      context: {
+        admin: { name: "Tom Dale" },
+        user: { name: "Yehuda Katz"}
+      }
+    });
+
+    appendView(view);
+  },
+
+  teardown: function() {
+    Ember.run(function() {
+      view.destroy();
+    });
+    Ember.lookup = originalLookup;
+  }
+});
+
+test("re-using the same variable with different #with blocks does not override each other", function(){
+  equal(view.$().text(), "Admin: Tom Dale User: Yehuda Katz", "should be properly scoped");
+});
+
+test("the scoped variable is not available outside the {{with}} block.", function(){
+  Ember.run(function() {
+    view.set('template', Ember.Handlebars.compile("{{name}}-{{#with other as name}}{{name}}{{/with}}-{{name}}"));
+    view.set('context', {
+      name: 'Stef',
+      other: 'Yehuda'
+    });
+  });
+
+  equal(view.$().text(), "Stef-Yehuda-Stef", "should be properly scoped after updating");
+});
+
+test("nested {{with}} blocks shadow the outer scoped variable properly.", function(){
+  Ember.run(function() {
+    view.set('template', Ember.Handlebars.compile("{{#with first as ring}}{{ring}}-{{#with fifth as ring}}{{ring}}-{{#with ninth as ring}}{{ring}}-{{/with}}{{ring}}-{{/with}}{{ring}}{{/with}}"));
+    view.set('context', {
+      first: 'Limbo',
+      fifth: 'Wrath',
+      ninth: 'Treachery'
+    });
+  });
+
+  equal(view.$().text(), "Limbo-Wrath-Treachery-Wrath-Limbo", "should be properly scoped after updating");
+});
 module("Handlebars {{#with}} globals helper", {
   setup: function() {
     Ember.lookup = lookup = { Ember: Ember };
@@ -182,3 +233,49 @@ test("it should render without fail", function() {
     view.destroy();
   });
 });
+
+if (Ember.FEATURES.isEnabled('with-controller')) {
+  module("Handlebars {{#with foo}} with defined controller");
+
+  test("it should wrap context with object controller", function() {
+    var Controller = Ember.ObjectController.extend({
+      controllerName: Ember.computed(function() {
+        return "controller:"+this.get('content.name');
+      })
+    });
+
+    var person = Ember.Object.create({name: 'Steve Holt'});
+    var container = new Ember.Container();
+
+    var parentController = {
+      container: container
+    };
+
+    view = Ember.View.create({
+      container: container,
+      template: Ember.Handlebars.compile('{{#with view.person controller="person"}}{{controllerName}}{{/with}}'),
+      person: person,
+      controller: parentController
+    });
+
+    container.register('controller:person', Controller);
+
+    appendView(view);
+
+    equal(view.$().text(), "controller:Steve Holt");
+
+    Ember.run(function() {
+      view.rerender();
+    });
+
+    equal(view.$().text(), "controller:Steve Holt");
+
+    Ember.run(function() {
+      person.set('name', 'Gob');
+      view.rerender();
+    });
+
+    equal(view.$().text(), "controller:Gob");
+    Ember.run(function() { view.destroy(); }); // destroy existing view
+  });
+}

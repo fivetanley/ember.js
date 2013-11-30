@@ -2,6 +2,7 @@ require('ember-metal/core');
 require('ember-metal/property_get');
 require('ember-metal/computed');
 require('ember-metal/properties');
+require('ember-metal/expand_properties');
 require('ember-metal/observer');
 require('ember-metal/utils');
 require('ember-metal/array');
@@ -20,6 +21,10 @@ var Mixin, REQUIRED, Alias,
     o_create = Ember.create,
     defineProperty = Ember.defineProperty,
     guidFor = Ember.guidFor;
+
+if (Ember.FEATURES.isEnabled('propertyBraceExpansion')) {
+  var expandProperties = Ember.expandProperties;
+}
 
 function mixinsMeta(obj) {
   var m = Ember.meta(obj, true), ret = m.mixins;
@@ -654,9 +659,9 @@ Ember.aliasMethod = function(methodName) {
 
   ```javascript
   Ember.Object.extend({
-    valueObserver: Ember.observer(function() {
+    valueObserver: Ember.observer('value', function() {
       // Executes whenever the "value" property changes
-    }, 'value')
+    })
   });
   ```
 
@@ -668,12 +673,45 @@ Ember.aliasMethod = function(methodName) {
 
   @method observer
   @for Ember
-  @param {Function} func
   @param {String} propertyNames*
+  @param {Function} func
   @return func
 */
-Ember.observer = function(func) {
-  var paths = a_slice.call(arguments, 1);
+Ember.observer = function() {
+  var func  = a_slice.call(arguments, -1)[0];
+  var paths;
+
+  if (Ember.FEATURES.isEnabled('propertyBraceExpansion')) {
+    var addWatchedProperty = function (path) { paths.push(path); };
+    var _paths = a_slice.call(arguments, 0, -1);
+
+    if (typeof func !== "function") {
+      // revert to old, soft-deprecated argument ordering
+
+      func  = arguments[0];
+      _paths = a_slice.call(arguments, 1);
+    }
+
+    paths = [];
+
+    for (var i=0; i<_paths.length; ++i) {
+      expandProperties(_paths[i], addWatchedProperty);
+    }
+  } else {
+    paths = a_slice.call(arguments, 0, -1);
+
+    if (typeof func !== "function") {
+      // revert to old, soft-deprecated argument ordering
+
+      func  = arguments[0];
+      paths = a_slice.call(arguments, 1);
+    }
+  }
+
+  if (typeof func !== "function") {
+    throw new Ember.Error("Ember.observer called without a function");
+  }
+
   func.__ember_observes__ = paths;
   return func;
 };
@@ -683,9 +721,9 @@ Ember.observer = function(func) {
 
   ```javascript
   Ember.Object.extend({
-    valueObserver: Ember.immediateObserver(function() {
+    valueObserver: Ember.immediateObserver('value', function() {
       // Executes whenever the "value" property changes
-    }, 'value')
+    })
   });
   ```
 
@@ -697,8 +735,8 @@ Ember.observer = function(func) {
 
   @method immediateObserver
   @for Ember
-  @param {Function} func
   @param {String} propertyNames*
+  @param {Function} func
   @return func
 */
 Ember.immediateObserver = function() {
@@ -725,22 +763,22 @@ Ember.immediateObserver = function() {
 
     friends: [{ name: 'Tom' }, { name: 'Stefan' }, { name: 'Kris' }],
 
-    valueWillChange: Ember.beforeObserver(function(obj, keyName) {
+    valueWillChange: Ember.beforeObserver('content.value', function(obj, keyName) {
       this.changingFrom = obj.get(keyName);
-    }, 'content.value'),
+    }),
 
-    valueDidChange: Ember.observer(function(obj, keyName) {
+    valueDidChange: Ember.observer('content.value', function(obj, keyName) {
         // only run if updating a value already in the DOM
         if (this.get('state') === 'inDOM') {
           var color = obj.get(keyName) > this.changingFrom ? 'green' : 'red';
           // logic
         }
-    }, 'content.value'),
+    }),
 
-    friendsDidChange: Ember.observer(function(obj, keyName) {
+    friendsDidChange: Ember.observer('friends.@each.name', function(obj, keyName) {
       // some logic
       // obj.get(keyName) returns friends array
-    }, 'friends.@each.name')
+    })
   });
   ```
 
@@ -749,12 +787,46 @@ Ember.immediateObserver = function() {
 
   @method beforeObserver
   @for Ember
-  @param {Function} func
   @param {String} propertyNames*
+  @param {Function} func
   @return func
 */
-Ember.beforeObserver = function(func) {
-  var paths = a_slice.call(arguments, 1);
+Ember.beforeObserver = function() {
+  var func  = a_slice.call(arguments, -1)[0];
+  var paths;
+
+  if (Ember.FEATURES.isEnabled('propertyBraceExpansion')) {
+    var addWatchedProperty = function(path) { paths.push(path); };
+
+    var _paths = a_slice.call(arguments, 0, -1);
+
+    if (typeof func !== "function") {
+      // revert to old, soft-deprecated argument ordering
+
+      func  = arguments[0];
+      _paths = a_slice.call(arguments, 1);
+    }
+
+    paths = [];
+
+    for (var i=0; i<_paths.length; ++i) {
+      expandProperties(_paths[i], addWatchedProperty);
+    }
+  } else {
+    paths = a_slice.call(arguments, 0, -1);
+
+    if (typeof func !== "function") {
+      // revert to old, soft-deprecated argument ordering
+
+      func  = arguments[0];
+      paths = a_slice.call(arguments, 1);
+    }
+  }
+
+  if (typeof func !== "function") {
+    throw new Ember.Error("Ember.beforeObserver called without a function");
+  }
+
   func.__ember_observesBefore__ = paths;
   return func;
 };

@@ -1,0 +1,14 @@
+{
+  "reduceComputed-non-array-dependencies": null,
+  "ember-testing-wait-hooks": null,
+  "query-params": null,
+  "string-humanize": null,
+  "propertyBraceExpansion": null,
+  "ember-routing-named-substates": null,
+  "ember-testing-lazy-routing": null,
+  "ember-handlebars-caps-lookup": null,
+  "ember-testing-simple-setup": null,
+  "ember-testing-routing-helpers": null,
+  "ember-testing-triggerEvent-helper": null,
+  "with-controller": null
+}

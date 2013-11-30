@@ -32,7 +32,7 @@ var childViewsProperty = Ember.computed(function() {
       Ember.deprecate("Manipulating an Ember.ContainerView through its childViews property is deprecated. Please use the ContainerView instance itself as an Ember.MutableArray.");
       return view.replace(idx, removedCount, addedViews);
     }
-    throw new Error("childViews is immutable");
+    throw new Ember.Error("childViews is immutable");
   };
 
   return ret;
@@ -857,9 +857,8 @@ Ember.View = Ember.CoreView.extend(
   /**
     The name of the template to lookup if no template is provided.
 
-    `Ember.View` will look for a template with this name in this view's
-    `templates` object. By default, this will be a global object
-    shared in `Ember.TEMPLATES`.
+    By default `Ember.View` will lookup a template with this name in
+    `Ember.TEMPLATES` (a shared global object).
 
     @property templateName
     @type String
@@ -870,24 +869,14 @@ Ember.View = Ember.CoreView.extend(
   /**
     The name of the layout to lookup if no layout is provided.
 
-    `Ember.View` will look for a template with this name in this view's
-    `templates` object. By default, this will be a global object
-    shared in `Ember.TEMPLATES`.
+    By default `Ember.View` will lookup a template with this name in
+    `Ember.TEMPLATES` (a shared global object).
 
     @property layoutName
     @type String
     @default null
   */
   layoutName: null,
-
-  /**
-    The hash in which to look for `templateName`.
-
-    @property templates
-    @type Ember.Object
-    @default Ember.TEMPLATES
-  */
-  templates: Ember.TEMPLATES,
 
   /**
     The template used to render the view. This should be a function that
@@ -1023,9 +1012,9 @@ Ember.View = Ember.CoreView.extend(
 
     @method _contextDidChange
   */
-  _contextDidChange: Ember.observer(function() {
+  _contextDidChange: Ember.observer('context', function() {
     this.rerender();
-  }, 'context'),
+  }),
 
   /**
     If `false`, the view will appear hidden in DOM.
@@ -1052,21 +1041,21 @@ Ember.View = Ember.CoreView.extend(
 
   // When it's a virtual view, we need to notify the parent that their
   // childViews will change.
-  _childViewsWillChange: Ember.beforeObserver(function() {
+  _childViewsWillChange: Ember.beforeObserver('childViews', function() {
     if (this.isVirtual) {
       var parentView = get(this, 'parentView');
       if (parentView) { Ember.propertyWillChange(parentView, 'childViews'); }
     }
-  }, 'childViews'),
+  }),
 
   // When it's a virtual view, we need to notify the parent that their
   // childViews did change.
-  _childViewsDidChange: Ember.observer(function() {
+  _childViewsDidChange: Ember.observer('childViews', function() {
     if (this.isVirtual) {
       var parentView = get(this, 'parentView');
       if (parentView) { Ember.propertyDidChange(parentView, 'childViews'); }
     }
-  }, 'childViews'),
+  }),
 
   /**
     Return the nearest ancestor that is an instance of the provided
@@ -1148,7 +1137,7 @@ Ember.View = Ember.CoreView.extend(
 
     @method _parentViewDidChange
   */
-  _parentViewDidChange: Ember.observer(function() {
+  _parentViewDidChange: Ember.observer('_parentView', function() {
     if (this.isDestroying) { return; }
 
     this.trigger('parentViewDidChange');
@@ -1156,9 +1145,9 @@ Ember.View = Ember.CoreView.extend(
     if (get(this, 'parentView.controller') && !get(this, 'controller')) {
       this.notifyPropertyChange('controller');
     }
-  }, '_parentView'),
+  }),
 
-  _controllerDidChange: Ember.observer(function() {
+  _controllerDidChange: Ember.observer('controller', function() {
     if (this.isDestroying) { return; }
 
     this.rerender();
@@ -1166,7 +1155,7 @@ Ember.View = Ember.CoreView.extend(
     this.forEachChildView(function(view) {
       view.propertyDidChange('controller');
     });
-  }, 'controller'),
+  }),
 
   cloneKeywords: function() {
     var templateData = get(this, 'templateData');
@@ -1722,8 +1711,8 @@ Ember.View = Ember.CoreView.extend(
     If you write a `willDestroyElement()` handler, you can assume that your
     `didInsertElement()` handler was called earlier for the same element.
 
-    Normally you will not call or override this method yourself, but you may
-    want to implement the above callbacks when it is run.
+    You should not call or override this method yourself, but you may
+    want to implement the above callbacks.
 
     @method destroyElement
     @return {Ember.View} receiver
@@ -1769,11 +1758,11 @@ Ember.View = Ember.CoreView.extend(
 
     @method _elementDidChange
   */
-  _elementDidChange: Ember.observer(function() {
+  _elementDidChange: Ember.observer('element', function() {
     this.forEachChildView(function(view) {
       delete meta(view).cache.element;
     });
-  }, 'element'),
+  }),
 
   /**
     Called when the parentView property has changed.
@@ -2154,7 +2143,7 @@ Ember.View = Ember.CoreView.extend(
 
     @method _isVisibleDidChange
   */
-  _isVisibleDidChange: Ember.observer(function() {
+  _isVisibleDidChange: Ember.observer('isVisible', function() {
     var $el = this.$();
     if (!$el) { return; }
 
@@ -2169,7 +2158,7 @@ Ember.View = Ember.CoreView.extend(
     } else {
       this._notifyBecameHidden();
     }
-  }, 'isVisible'),
+  }),
 
   _notifyBecameVisible: function() {
     this.trigger('becameVisible');

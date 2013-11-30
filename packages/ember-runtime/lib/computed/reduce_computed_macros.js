@@ -1,3 +1,6 @@
+require('ember-runtime/ext/string');
+require('ember-runtime/system/namespace');
+require('ember-runtime/system/object_proxy');
 require('ember-runtime/computed/array_computed');
 
 /**
@@ -11,7 +14,8 @@ var get = Ember.get,
     merge = Ember.merge,
     a_slice = [].slice,
     forEach = Ember.EnumerableUtils.forEach,
-    map = Ember.EnumerableUtils.map;
+    map = Ember.EnumerableUtils.map,
+    SearchProxy;
 
 /**
   A computed property that calculates the maximum value in the
@@ -111,14 +115,14 @@ Ember.computed.min = function (dependentKey) {
   Example
 
   ```javascript
-  App.Hampster = Ember.Object.extend({
+  App.Hamster = Ember.Object.extend({
     excitingChores: Ember.computed.map('chores', function(chore) {
       return chore.toUpperCase() + '!';
     })
   });
 
-  var hampster = App.Hampster.create({chores: ['cook', 'clean', 'write more unit tests']});
-  hampster.get('excitingChores'); // ['COOK!', 'CLEAN!', 'WRITE MORE UNIT TESTS!']
+  var hamster = App.Hamster.create({chores: ['cook', 'clean', 'write more unit tests']});
+  hamster.get('excitingChores'); // ['COOK!', 'CLEAN!', 'WRITE MORE UNIT TESTS!']
   ```
 
   @method computed.map
@@ -195,18 +199,18 @@ Ember.computed.mapProperty = Ember.computed.mapBy;
   Example
 
   ```javascript
-  App.Hampster = Ember.Object.extend({
+  App.Hamster = Ember.Object.extend({
     remainingChores: Ember.computed.filter('chores', function(chore) {
       return !chore.done;
     })
   });
 
-  var hampster = App.Hampster.create({chores: [
+  var hamster = App.Hamster.create({chores: [
     {name: 'cook', done: true},
     {name: 'clean', done: true},
     {name: 'write more unit tests', done: false}
   ]});
-  hampster.get('remainingChores'); // [{name: 'write more unit tests', done: false}]
+  hamster.get('remainingChores'); // [{name: 'write more unit tests', done: false}]
   ```
 
   @method computed.filter
@@ -252,16 +256,16 @@ Ember.computed.filter = function(dependentKey, callback) {
   Example
 
   ```javascript
-  App.Hampster = Ember.Object.extend({
+  App.Hamster = Ember.Object.extend({
     remainingChores: Ember.computed.filterBy('chores', 'done', false)
   });
 
-  var hampster = App.Hampster.create({chores: [
+  var hamster = App.Hamster.create({chores: [
     {name: 'cook', done: true},
     {name: 'clean', done: true},
     {name: 'write more unit tests', done: false}
   ]});
-  hampster.get('remainingChores'); // [{name: 'write more unit tests', done: false}]
+  hamster.get('remainingChores'); // [{name: 'write more unit tests', done: false}]
   ```
 
   @method computed.filterBy
@@ -304,17 +308,17 @@ Ember.computed.filterProperty = Ember.computed.filterBy;
   Example
 
   ```javascript
-  App.Hampster = Ember.Object.extend({
+  App.Hamster = Ember.Object.extend({
     uniqueFruits: Ember.computed.uniq('fruits')
   });
 
-  var hampster = App.Hampster.create({fruits: [
+  var hamster = App.Hamster.create({fruits: [
     'banana',
     'grape',
     'kale',
     'banana'
   ]});
-  hampster.get('uniqueFruits'); // ['banana', 'grape', 'kale']
+  hamster.get('uniqueFruits'); // ['banana', 'grape', 'kale']
   ```
 
   @method computed.uniq
@@ -449,16 +453,16 @@ Ember.computed.intersect = function () {
   Example
 
   ```javascript
-  App.Hampster = Ember.Object.extend({
+  App.Hamster = Ember.Object.extend({
     likes: ['banana', 'grape', 'kale'],
     wants: Ember.computed.setDiff('likes', 'fruits')
   });
 
-  var hampster = App.Hampster.create({fruits: [
+  var hamster = App.Hamster.create({fruits: [
     'grape',
     'kale',
   ]});
-  hampster.get('wants'); // ['banana']
+  hamster.get('wants'); // ['banana']
   ```
 
   @method computed.setDiff
@@ -471,7 +475,7 @@ Ember.computed.intersect = function () {
 */
 Ember.computed.setDiff = function (setAProperty, setBProperty) {
   if (arguments.length !== 2) {
-    throw new Error("setDiff requires exactly two dependent arrays.");
+    throw new Ember.Error("setDiff requires exactly two dependent arrays.");
   }
   return Ember.arrayComputed.call(null, setAProperty, setBProperty, {
     addedItem: function (array, item, changeMeta, instanceMeta) {
@@ -539,12 +543,15 @@ function binarySearch(array, item, low, high) {
   return mid;
 
   function _guidFor(item) {
-    if (Ember.ObjectProxy.detectInstance(item)) {
+    if (SearchProxy.detectInstance(item)) {
       return guidFor(get(item, 'content'));
     }
     return guidFor(item);
   }
 }
+
+
+SearchProxy = Ember.ObjectProxy.extend();
 
 /**
   A computed property which returns a new array with all the
@@ -687,10 +694,10 @@ Ember.computed.sort = function (itemsKey, sortDefinition) {
       if (changeMeta.previousValues) {
         proxyProperties = merge({ content: item }, changeMeta.previousValues);
 
-        searchItem = Ember.ObjectProxy.create(proxyProperties);
-     } else {
-       searchItem = item;
-     }
+        searchItem = SearchProxy.create(proxyProperties);
+      } else {
+        searchItem = item;
+      }
 
       index = instanceMeta.binarySearch(array, searchItem);
       array.removeAt(index);

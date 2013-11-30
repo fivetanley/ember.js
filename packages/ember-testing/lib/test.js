@@ -4,7 +4,6 @@
  */
 var slice = [].slice,
     helpers = {},
-    originalMethods = {},
     injectHelpersCallbacks = [];
 
 /**
@@ -14,7 +13,7 @@ var slice = [].slice,
   * Register/Unregister additional test helpers.
   * Setup callbacks to be fired when the test helpers are injected into
     your application.
-  
+
   @class Test
   @namespace Ember
 */
@@ -30,7 +29,7 @@ Ember.Test = {
     For example:
     ```javascript
       Ember.Test.registerHelper('boot', function(app) {
-        Ember.run(app, app.deferReadiness);
+        Ember.run(app, app.advanceReadiness);
       });
     ```
 
@@ -43,21 +42,63 @@ Ember.Test = {
       boot();
     ```
 
-    Whenever you register a helper that performs async operations, make sure
-    you `return wait();` at the end of the helper.
-
-    If an async helper also needs to return a value, pass it to the `wait`
-    helper as a first argument:
-    `return wait(val);`
-
     @public
     @method registerHelper
     @param {String} name The name of the helper method to add.
     @param {Function} helperMethod
+    @param options {Object}
   */
   registerHelper: function(name, helperMethod) {
-    helpers[name] = helperMethod;
+    helpers[name] = {
+      method: helperMethod,
+      meta: { wait: false }
+    };
   },
+
+  /**
+    `registerAsyncHelper` is used to register an async test helper that will be injected
+    when `App.injectTestHelpers` is called.
+
+    The helper method will always be called with the current Application as
+    the first parameter.
+
+    For example:
+    ```javascript
+      Ember.Test.registerAsyncHelper('boot', function(app) {
+        Ember.run(app, app.advanceReadiness);
+      });
+    ```
+
+    The advantage of an async helper is that it will not run
+    until the last async helper has completed.  All async helpers
+    after it will wait for it complete before running.
+
+
+    For example:
+    ```javascript
+      Ember.Test.registerAsyncHelper('deletePost', function(app, postId) {
+        click('.delete-' + postId);
+      });
+
+      // ... in your test
+      visit('/post/2');
+      deletePost(2);
+      visit('/post/3');
+      deletePost(3);
+    ```
+
+    @public
+    @method registerAsyncHelper
+    @param {String} name The name of the helper method to add.
+    @param {Function} helperMethod
+  */
+  registerAsyncHelper: function(name, helperMethod) {
+    helpers[name] = {
+      method: helperMethod,
+      meta: { wait: true }
+    };
+  },
+
   /**
     Remove a previously added helper method.
 
@@ -72,10 +113,7 @@ Ember.Test = {
   */
   unregisterHelper: function(name) {
     delete helpers[name];
-    if (originalMethods[name]) {
-      window[name] = originalMethods[name];
-    }
-    delete originalMethods[name];
+    delete Ember.Test.Promise.prototype[name];
   },
 
   /**
@@ -117,30 +155,7 @@ Ember.Test = {
     @param {Function} resolver The function used to resolve the promise.
   */
   promise: function(resolver) {
-    var promise = new Ember.RSVP.Promise(resolver);
-    var thenable = {
-      chained: false
-    };
-    thenable.then = function(onSuccess, onFailure) {
-      var thenPromise, nextPromise;
-      thenable.chained = true;
-      thenPromise = promise.then(onSuccess, onFailure);
-      // this is to ensure all downstream fulfillment
-      // handlers are wrapped in the error handling
-      nextPromise = Ember.Test.promise(function(resolve) {
-        resolve(thenPromise);
-      });
-      thenPromise.then(null, function(reason) {
-        // ensure this is the last promise in the chain
-        // if not, ignore and the exception will propagate
-        // this prevents the same error from being fired multiple times
-        if (!nextPromise.chained) {
-          Ember.Test.adapter.exception(reason);
-        }
-      });
-      return nextPromise;
-    };
-    return thenable;
+    return new Ember.Test.Promise(resolver);
   },
 
   /**
@@ -162,11 +177,24 @@ Ember.Test = {
    @default Ember.Test.QUnitAdapter
   */
   adapter: null,
+
   /**
-     `registerWaiter` is used to register a callback that will check
-     for additional in-progress actions whenever `wait()` is
-     called. `wait()` will not resolve until your callback returns
-     true.
+    Replacement for `Ember.RSVP.resolve`
+    The only difference is this uses
+    and instance of `Ember.Test.Promise`
+
+    @public
+    @method resolve
+    @param {Mixed} The value to resolve
+  */
+  resolve: function(val) {
+    return Ember.Test.promise(function(resolve) {
+      return resolve(val);
+    });
+  },
+
+  /**
+   @public
 
      This allows ember-testing to play nicely with other asynchronous
      events, such as an application that is waiting for a CSS3
@@ -223,21 +251,86 @@ Ember.Test = {
   }
 };
 
-function curry(app, fn) {
+function helper(app, name) {
+  var fn = helpers[name].method,
+      meta = helpers[name].meta;
+
   return function() {
-    var args = slice.call(arguments);
+    var args = slice.call(arguments),
+        lastPromise = Ember.Test.lastPromise;
+
     args.unshift(app);
-    return fn.apply(app, args);
+
+    // some helpers are not async and
+    // need to return a value immediately.
+    // example: `find`
+    if (!meta.wait) {
+      return fn.apply(app, args);
+    }
+
+    if (!lastPromise) {
+      // It's the first async helper in current context
+      lastPromise = fn.apply(app, args);
+    } else {
+      // wait for last helper's promise to resolve
+      // and then execute
+      run(function() {
+        lastPromise = Ember.Test.resolve(lastPromise).then(function() {
+          return fn.apply(app, args);
+        });
+      });
+    }
+
+    return lastPromise;
   };
+}
+
+function run(fn) {
+  if (!Ember.run.currentRunLoop) {
+    Ember.run(fn);
+  } else {
+    fn();
+  }
 }
 
 Ember.Application.reopen({
   /**
+   This property contains the testing helpers for the current application. These
+   are created once you call `injectTestHelpers` on your `Ember.Application`
+   instance. The included helpers are also available on the `window` object by
+   default, but can be used from this object on the individual application also.
+
     @property testHelpers
     @type {Object}
     @default {}
   */
   testHelpers: {},
+
+  /**
+   This property will contain the original methods that were registered
+   on the `helperContainer` before `injectTestHelpers` is called.
+
+   When `removeTestHelpers` is called, these methods are restored to the
+   `helperContainer`.
+
+    @property originalMethods
+    @type {Object}
+    @default {}
+    @private
+  */
+  originalMethods: {},
+
+
+  /**
+  This property indicates whether or not this application is currently in
+  testing mode. This is set when `setupForTesting` is called on the current
+  application.
+
+  @property testing
+  @type {Boolean}
+  @default false
+  */
+  testing: false,
 
   /**
    This hook defers the readiness of the application, so that you can start
@@ -256,7 +349,11 @@ Ember.Application.reopen({
   setupForTesting: function() {
     Ember.testing = true;
 
-    this.deferReadiness();
+    if (Ember.FEATURES.isEnabled('ember-testing-lazy-routing')){
+      this.testing = true;
+    } else {
+      this.deferReadiness();
+    }
 
     this.Router.reopen({
       location: 'none'
@@ -266,12 +363,28 @@ Ember.Application.reopen({
     if (!Ember.Test.adapter) {
        Ember.Test.adapter = Ember.Test.QUnitAdapter.create();
     }
+
+    if (Ember.FEATURES.isEnabled('ember-testing-simple-setup')){
+      this.testingSetup = true;
+    }
   },
 
   /**
-    This injects the test helpers into the window's scope. If a function of the
-    same name has already been defined it will be cached (so that it can be reset
-    if the helper is removed with `unregisterHelper` or `removeTestHelpers`).
+    This will be used as the container to inject the test helpers into. By
+    default the helpers are injected into `window`.
+
+    @property helperContainer
+   @type {Object} The object to be used for test helpers.
+   @default window
+  */
+  helperContainer: window,
+
+  /**
+    This injects the test helpers into the `helperContainer` object. If an object is provided
+    it will be used as the helperContainer. If `helperContainer` is not set it will default
+    to `window`. If a function of the same name has already been defined it will be cached
+    (so that it can be reset if the helper is removed with `unregisterHelper` or
+    `removeTestHelpers`).
 
    Any callbacks registered with `onInjectHelpers` will be called once the
    helpers have been injected.
@@ -283,16 +396,22 @@ Ember.Application.reopen({
 
     @method injectTestHelpers
   */
-  injectTestHelpers: function() {
+  injectTestHelpers: function(helperContainer) {
+    if (helperContainer) { this.helperContainer = helperContainer; }
+
     this.testHelpers = {};
     for (var name in helpers) {
-      originalMethods[name] = window[name];
-      this.testHelpers[name] = window[name] = curry(this, helpers[name]);
+      this.originalMethods[name] = this.helperContainer[name];
+      this.testHelpers[name] = this.helperContainer[name] = helper(this, name);
+      protoWrap(Ember.Test.Promise.prototype, name, helper(this, name), helpers[name].meta.wait);
     }
 
     for(var i = 0, l = injectHelpersCallbacks.length; i < l; i++) {
       injectHelpersCallbacks[i](this);
     }
+
+    Ember.RSVP.on('error', onerror);
+    Ember.RSVP.off('error', Ember.RSVP.onerrorDefault);
   },
 
   /**
@@ -309,9 +428,81 @@ Ember.Application.reopen({
   */
   removeTestHelpers: function() {
     for (var name in helpers) {
-      window[name] = originalMethods[name];
+      this.helperContainer[name] = this.originalMethods[name];
       delete this.testHelpers[name];
-      delete originalMethods[name];
+      delete this.originalMethods[name];
     }
+    Ember.RSVP.off('error', onerror);
+    Ember.RSVP.on('error', Ember.RSVP.onerrorDefault);
   }
+
 });
+
+// This method is no longer needed
+// But still here for backwards compatibility
+// of helper chaining
+function protoWrap(proto, name, callback, isAsync) {
+  proto[name] = function() {
+    var args = arguments;
+    if (isAsync) {
+      return callback.apply(this, args);
+    } else {
+      return this.then(function() {
+        return callback.apply(this, args);
+      });
+    }
+  };
+}
+
+Ember.Test.Promise = function() {
+  Ember.RSVP.Promise.apply(this, arguments);
+  Ember.Test.lastPromise = this;
+};
+
+Ember.Test.Promise.prototype = Ember.create(Ember.RSVP.Promise.prototype);
+Ember.Test.Promise.prototype.constructor = Ember.Test.Promise;
+
+// Patch `then` to isolate async methods
+// specifically `Ember.Test.lastPromise`
+var originalThen = Ember.RSVP.Promise.prototype.then;
+Ember.Test.Promise.prototype.then = function(onSuccess, onFailure) {
+  return originalThen.call(this, function(val) {
+    return isolate(onSuccess, val);
+  }, onFailure);
+};
+
+// This method isolates nested async methods
+// so that they don't conflict with other last promises.
+//
+// 1. Set `Ember.Test.lastPromise` to null
+// 2. Invoke method
+// 3. Return the last promise created during method
+// 4. Restore `Ember.Test.lastPromise` to original value
+function isolate(fn, val) {
+  var value, lastPromise;
+
+  // Reset lastPromise for nested helpers
+  Ember.Test.lastPromise = null;
+
+  value = fn.call(null, val);
+
+  lastPromise = Ember.Test.lastPromise;
+
+  // If the method returned a promise
+  // return that promise. If not,
+  // return the last async helper's promise
+  if ((value && (value instanceof Ember.Test.Promise)) || !lastPromise) {
+    return value;
+  } else {
+    run(function() {
+      lastPromise = Ember.Test.resolve(lastPromise).then(function() {
+        return value;
+      });
+    });
+    return lastPromise;
+  }
+}
+
+function onerror(event) {
+  Ember.Test.adapter.exception(event.detail);
+}

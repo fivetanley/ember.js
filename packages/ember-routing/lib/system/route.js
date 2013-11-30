@@ -10,6 +10,7 @@ var get = Ember.get, set = Ember.set,
     a_forEach = Ember.EnumerableUtils.forEach,
     a_replace = Ember.EnumerableUtils.replace;
 
+
 /**
   The `Ember.Route` class is used to define individual routes. Refer to
   the [routing guide](http://emberjs.com/guides/routing/) for documentation.
@@ -19,6 +20,7 @@ var get = Ember.get, set = Ember.set,
   @extends Ember.Object
 */
 Ember.Route = Ember.Object.extend(Ember.ActionHandler, {
+
   /**
     @private
 
@@ -272,8 +274,8 @@ Ember.Route = Ember.Object.extend(Ember.ActionHandler, {
   deactivate: Ember.K,
 
   /**
-    This hook is executed when the router enters the route for the first time.
-    It is not executed when the model for the route changes.
+    This hook is executed when the router enters the route. It is not executed
+    when the model for the route changes.
 
     @method activate
   */
@@ -307,6 +309,24 @@ Ember.Route = Ember.Object.extend(Ember.ActionHandler, {
     });
     ```
 
+   Transition to a nested route
+
+   ```javascript
+   App.Router.map(function() {
+     this.resource('articles', { path: '/articles' }, function() {
+       this.route('new');
+     });
+   });
+
+   App.IndexRoute = Ember.Route.extend({
+     actions: {
+       transitionToNewArticle: function() {
+         this.transitionTo('articles.new');
+       }
+     }
+   });
+   ```
+
     Multiple Models Example
 
     ```javascript
@@ -336,6 +356,26 @@ Ember.Route = Ember.Object.extend(Ember.ActionHandler, {
   transitionTo: function(name, context) {
     var router = this.router;
     return router.transitionTo.apply(router, arguments);
+  },
+
+  /**
+    Perform a synchronous transition into another route with out attempting
+    to resolve promises, update the URL, or abort any currently active
+    asynchronous transitions (i.e. regular transitions caused by
+    `transitionTo` or URL changes).
+
+    This method is handy for performing intermediate transitions on the
+    way to a final destination route, and is called internally by the
+    default implementations of the `error` and `loading` handlers.
+
+    @method intermediateTransitionTo
+    @param {String} name the name of the route
+    @param {...Object} models the model(s) to be used while transitioning
+    to the route.
+   */
+  intermediateTransitionTo: function() {
+    var router = this.router;
+    router.intermediateTransitionTo.apply(router, arguments);
   },
 
   /**
@@ -612,7 +652,7 @@ Ember.Route = Ember.Object.extend(Ember.ActionHandler, {
 
     Note that for routes with dynamic segments, this hook is only
     executed when entered via the URL. If the route is entered
-    through a transition (e.g. when using the `linkTo` Handlebars
+    through a transition (e.g. when using the `link-to` Handlebars
     helper), then a model context is already provided and this hook
     is not called. Routes without dynamic segments will always
     execute the model hook.
@@ -783,6 +823,7 @@ Ember.Route = Ember.Object.extend(Ember.ActionHandler, {
     instance would be used.
 
     Example
+
     ```js
     App.PostRoute = Ember.Route.extend({
       setupController: function(controller, model) {
@@ -1007,9 +1048,18 @@ Ember.Route = Ember.Object.extend(Ember.ActionHandler, {
     }
 
     options = options || {};
-    name = name ? name.replace(/\//g, '.') : this.routeName;
+
+    var templateName;
+
+    if (name) {
+      name = name.replace(/\//g, '.');
+      templateName = name;
+    } else {
+      name = this.routeName;
+      templateName = this.templateName || name;
+    }
+
     var viewName = options.view || this.viewName || name;
-    var templateName = this.templateName || name;
 
     var container = this.container,
         view = container.lookup('view:' + viewName),
