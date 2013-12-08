@@ -1,4 +1,5 @@
 /**
+ *
 @module ember
 @submodule ember-routing
 */
@@ -467,7 +468,17 @@ Ember.Route = Ember.Object.extend(Ember.ActionHandler, {
     // referenced in action handlers
     this.controller = controller;
 
+
     var args = [controller, context];
+
+    if (Ember.isArray(context) && typeof context.addArrayObserver !== 'function'){
+      context = Ember.A(context);
+    }
+
+    debugger
+    Ember.assert(
+        fmt("ArrayControllers expect an array as their 'model', you set the model with %@", [context ? get(context, 'constructor') : context]),
+        !(context && typeof context === 'object' && controller && (controller instanceof Ember.ArrayController) && !Ember.isArray(context)));
 
     if (Ember.FEATURES.isEnabled("query-params")) {
       args.push(queryParams);
@@ -479,6 +490,7 @@ Ember.Route = Ember.Object.extend(Ember.ActionHandler, {
     } else {
       this.setupController.apply(this, args);
     }
+
 
     if (this.renderTemplates) {
       Ember.deprecate("Ember.Route.renderTemplates is deprecated. Please use Ember.Route.renderTemplate(controller, model) instead.");

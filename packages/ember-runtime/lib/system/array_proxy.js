@@ -181,6 +181,9 @@ Ember.ArrayProxy = Ember.Object.extend(Ember.MutableArray,/** @scope Ember.Array
     var arrangedContent = get(this, 'arrangedContent');
 
     if (arrangedContent) {
+      if (Ember.isArray(arrangedContent) && typeof arrangedContent.addArrayObserver !== 'function'){
+        arrangedContent = Ember.A(arrangedContent);
+      }
       arrangedContent.addArrayObserver(this, {
         willChange: 'arrangedContentArrayWillChange',
         didChange: 'arrangedContentArrayDidChange'

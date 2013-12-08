@@ -81,4 +81,5 @@ PLATFORMS
 DEPENDENCIES
   ember-dev!
   ember-source!
+  puma
   rake-pipeline!
