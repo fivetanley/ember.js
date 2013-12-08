@@ -20,6 +20,8 @@ var buildContainer = function(namespace) {
   container.register('application:main', namespace, { instantiate: false });
   container.injection('router:main', 'namespace', 'application:main');
 
+  container.register('location:hash', Ember.HashLocation);
+
   container.register('controller:basic', Ember.Controller, { instantiate: false });
   container.register('controller:object', Ember.ObjectController, { instantiate: false });
   container.register('controller:array', Ember.ArrayController, { instantiate: false });
@@ -98,7 +100,8 @@ test("{{render}} helper should render given template with a supplied model", fun
     post: post
   });
 
-  var controller = Controller.create();
+  var controller = Controller.create({
+  });
 
   view = Ember.View.create({
     controller: controller,
@@ -125,6 +128,36 @@ test("{{render}} helper should render given template with a supplied model", fun
   } else {
     deepEqual(postController.get('model'), { title: "Rails is unagi" });
   }
+});
+
+test("{{render}} helper with a supplied model should not fire observers on the controller", function () {
+  var template = "<h1>HI</h1>{{render 'post' post}}";
+  var post = {
+    title: "Rails is omakase"
+  };
+
+  view = Ember.View.create({
+    controller: Ember.Controller.create({
+      container: container,
+      post: post
+    }),
+    template: Ember.Handlebars.compile(template)
+  });
+
+  var PostController = Ember.ObjectController.extend({
+    contentDidChange: Ember.observer('content', function(){
+      contentDidChange++;
+    })
+  });
+
+  container.register('controller:post', PostController);
+
+  Ember.TEMPLATES['post'] = compile("<p>{{title}}</p>");
+
+  var contentDidChange = 0;
+  appendView(view);
+  equal(contentDidChange, 0, "content observer did not fire");
+
 });
 
 test("{{render}} helper should raise an error when a given controller name does not resolve to a controller", function() {

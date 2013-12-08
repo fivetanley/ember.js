@@ -1,13 +1,12 @@
 var Router, App, AppView, templates, router, container;
-var get = Ember.get, set = Ember.set;
+var get = Ember.get,
+    set = Ember.set,
+    compile = Ember.Handlebars.compile,
+    forEach = Ember.EnumerableUtils.forEach;
 
 function bootApplication() {
   router = container.lookup('router:main');
   Ember.run(App, 'advanceReadiness');
-}
-
-function compile(string) {
-  return Ember.Handlebars.compile(string);
 }
 
 function handleURL(path) {
@@ -115,9 +114,9 @@ test("The Homepage", function() {
   var currentPath;
 
   App.ApplicationController = Ember.Controller.extend({
-    currentPathDidChange: Ember.observer(function() {
+    currentPathDidChange: Ember.observer('currentPath', function() {
       currentPath = get(this, 'currentPath');
-    }, 'currentPath')
+    })
   });
 
   bootApplication();
@@ -144,15 +143,15 @@ test("The Home page and the Camelot page with multiple Router.map calls", functi
   var currentPath;
 
   App.ApplicationController = Ember.Controller.extend({
-    currentPathDidChange: Ember.observer(function() {
+    currentPathDidChange: Ember.observer('currentPath', function() {
       currentPath = get(this, 'currentPath');
-    }, 'currentPath')
+    })
   });
 
   App.CamelotController = Ember.Controller.extend({
-    currentPathDidChange: Ember.observer(function() {
+    currentPathDidChange: Ember.observer('currentPath', function() {
       currentPath = get(this, 'currentPath');
-    }, 'currentPath')
+    })
   });
 
   bootApplication();
@@ -348,6 +347,62 @@ test('render does not replace template if user provided', function () {
   });
 
   equal(Ember.$('p', '#qunit-fixture').text(), "THIS IS THE REAL HOME", "The homepage template was rendered");
+});
+
+test('render uses templateName from route', function() {
+  Router.map(function() {
+    this.route("home", { path: "/" });
+  });
+
+  Ember.TEMPLATES.the_real_home_template = Ember.Handlebars.compile(
+    "<p>THIS IS THE REAL HOME</p>"
+  );
+
+  App.HomeController = Ember.Controller.extend();
+  App.HomeRoute = Ember.Route.extend({
+    templateName: 'the_real_home_template'
+  });
+
+  bootApplication();
+
+  equal(Ember.$('p', '#qunit-fixture').text(), "THIS IS THE REAL HOME", "The homepage template was rendered");
+});
+
+test('defining templateName allows other templates to be rendered', function() {
+  Router.map(function() {
+    this.route("home", { path: "/" });
+  });
+
+  Ember.TEMPLATES.alert = Ember.Handlebars.compile(
+    "<div class='alert-box'>Invader!</div>"
+  );
+  Ember.TEMPLATES.the_real_home_template = Ember.Handlebars.compile(
+    "<p>THIS IS THE REAL HOME</p>{{outlet alert}}"
+  );
+
+  App.HomeController = Ember.Controller.extend();
+  App.HomeRoute = Ember.Route.extend({
+    templateName: 'the_real_home_template',
+    actions: {
+      showAlert: function(){
+        this.render('alert', {
+          into: 'home',
+          outlet: 'alert'
+        });
+      }
+    }
+  });
+
+  bootApplication();
+
+  equal(Ember.$('p', '#qunit-fixture').text(), "THIS IS THE REAL HOME", "The homepage template was rendered");
+
+  Ember.run(function(){
+    router.send('showAlert');
+  });
+
+  equal(Ember.$('.alert-box', '#qunit-fixture').text(), "Invader!", "Template for alert was render into outlet");
+
 });
 
 test("The Homepage with a `setupController` hook", function() {
@@ -750,6 +805,9 @@ asyncTest("The Special page returning an error invokes SpecialRoute's error hand
 });
 
 function testOverridableErrorHandler(handlersName) {
+
+  expect(2);
+
   Router.map(function() {
     this.route("home", { path: "/" });
     this.resource("special", { path: "/specials/:menu_item_id" });
@@ -855,9 +913,9 @@ asyncTest("Nested callbacks are not exited when moving to siblings", function() 
   var currentPath;
 
   App.ApplicationController = Ember.Controller.extend({
-    currentPathDidChange: Ember.observer(function() {
+    currentPathDidChange: Ember.observer('currentPath', function() {
       currentPath = get(this, 'currentPath');
-    }, 'currentPath')
+    })
   });
 
   var menuItem;
@@ -1290,7 +1348,8 @@ test("transitioning multiple times in a single run loop only sets the URL once",
 });
 
 test('navigating away triggers a url property change', function() {
-  var urlPropertyChangeCount = 0;
+
+  expect(3);
 
   Router.map(function() {
     this.route('root', { path: '/' });
@@ -1302,30 +1361,14 @@ test('navigating away triggers a url property change', function() {
 
   Ember.run(function() {
     Ember.addObserver(router, 'url', function() {
-      urlPropertyChangeCount++;
+      ok(true, "url change event was fired");
     });
   });
 
-  equal(urlPropertyChangeCount, 0);
-
-  var transition = handleURL("/");
-
-  Ember.run(function() {
-    transition.then(function() {
-      equal(urlPropertyChangeCount, 2);
-
-      // Trigger the callback that would otherwise be triggered
-      // when a user clicks the back or forward button.
-
-      return router.router.transitionTo('foo');
-    }).then(function(result) {
-      return router.router.transitionTo('bar');
-    }).then(function(result) {
-      equal(urlPropertyChangeCount, 4, 'triggered url property change');
-    });
+  forEach(['foo', 'bar', '/foo'], function(destination) {
+    Ember.run(router, 'transitionTo', destination);
   });
 });
-
 
 test("using replaceWith calls location.replaceURL if available", function() {
   var setCount = 0,
@@ -1837,7 +1880,8 @@ test("Router accounts for rootURL on page load when using history location", fun
     }
   });
 
-  Ember.Location.registerImplementation('historyTest', HistoryTestLocation);
+
+  container.register('location:historyTest', HistoryTestLocation);
 
   Router.reopen({
     location: 'historyTest',
@@ -1858,9 +1902,6 @@ test("Router accounts for rootURL on page load when using history location", fun
   bootApplication();
 
   ok(postsTemplateRendered, "Posts route successfully stripped from rootURL");
-
-  // clean after test
-  delete Ember.Location.implementations['historyTest'];
 });
 
 test("HistoryLocation has the correct rootURL on initState and webkit doesn't fire popstate on page load", function() {
@@ -1882,7 +1923,7 @@ test("HistoryLocation has the correct rootURL on initState and webkit doesn't fi
     }
   });
 
-  Ember.Location.registerImplementation('historyTest', HistoryTestLocation);
+  container.register('location:historyTest', HistoryTestLocation);
 
   Router.reopen({
     location: 'historyTest',
@@ -1890,9 +1931,6 @@ test("HistoryLocation has the correct rootURL on initState and webkit doesn't fi
   });
 
   bootApplication();
-
-  // clean after test
-  delete Ember.Location.implementations['historyTest'];
 });
 
 
@@ -2174,9 +2212,9 @@ test("ApplicationRoute with model does not proxy the currentPath", function() {
   });
 
   App.ApplicationController = Ember.ObjectController.extend({
-    currentPathDidChange: Ember.observer(function() {
+    currentPathDidChange: Ember.observer('currentPath', function() {
       currentPath = get(this, 'currentPath');
-    }, 'currentPath')
+    })
   });
 
   bootApplication();
@@ -2185,26 +2223,15 @@ test("ApplicationRoute with model does not proxy the currentPath", function() {
   equal('currentPath' in model, false, 'should have defined currentPath on controller');
 });
 
-asyncTest("Promises encountered on app load put app into loading state until resolved", function() {
+test("Promises encountered on app load put app into loading state until resolved", function() {
 
   expect(2);
 
+  var deferred = Ember.RSVP.defer();
+
   App.IndexRoute = Ember.Route.extend({
     model: function() {
-
-      Ember.run.next(function() {
-        equal(Ember.$('p', '#qunit-fixture').text(), "LOADING", "The loading state is displaying.");
-      });
-
-      return new Ember.RSVP.Promise(function(resolve) {
-        setTimeout(function() {
-          Ember.run(function() {
-            resolve();
-          });
-          equal(Ember.$('p', '#qunit-fixture').text(), "INDEX", "The index route is display.");
-          start();
-        }, 20);
-      });
+      return deferred.promise;
     }
   });
 
@@ -2213,6 +2240,9 @@ asyncTest("Promises encountered on app load put app into loading state until res
 
   bootApplication();
 
+  equal(Ember.$('p', '#qunit-fixture').text(), "LOADING", "The loading state is displaying.");
+  Ember.run(deferred.resolve);
+  equal(Ember.$('p', '#qunit-fixture').text(), "INDEX", "The index route is display.");
 });
 
 test("Route should tear down multiple outlets", function() {
@@ -2431,46 +2461,44 @@ test("Aborting/redirecting the transition in `willTransition` prevents LoadingRo
   Ember.run(deferred.resolve);
 });
 
-if (Ember.FEATURES.isEnabled("ember-routing-didTransition-hook")) {
-  test("`didTransition` event fires on the router", function() {
-    expect(3);
+test("`didTransition` event fires on the router", function() {
+  expect(3);
 
-    Router.map(function(){
-      this.route("nork");
-    });
-
-    router = container.lookup('router:main');
-
-    router.one('didTransition', function(){
-      ok(true, 'didTransition fired on initial routing');
-    });
-
-    bootApplication();
-
-    router.one('didTransition', function(){
-      ok(true, 'didTransition fired on the router');
-      equal(router.get('url'), "/nork", 'The url property is updated by the time didTransition fires');
-    });
-
-    Ember.run(router, 'transitionTo', 'nork');
+  Router.map(function(){
+    this.route("nork");
   });
-  test("`didTransition` can be reopened", function() {
-    expect(1);
 
-    Router.map(function(){
-      this.route("nork");
-    });
+  router = container.lookup('router:main');
 
-    Router.reopen({
-      didTransition: function(){
-        this._super.apply(this, arguments);
-        ok(true, 'reopened didTransition was called');
-      }
-    });
-
-    bootApplication();
+  router.one('didTransition', function(){
+    ok(true, 'didTransition fired on initial routing');
   });
-}
+
+  bootApplication();
+
+  router.one('didTransition', function(){
+    ok(true, 'didTransition fired on the router');
+    equal(router.get('url'), "/nork", 'The url property is updated by the time didTransition fires');
+  });
+
+  Ember.run(router, 'transitionTo', 'nork');
+});
+test("`didTransition` can be reopened", function() {
+  expect(1);
+
+  Router.map(function(){
+    this.route("nork");
+  });
+
+  Router.reopen({
+    didTransition: function(){
+      this._super.apply(this, arguments);
+      ok(true, 'reopened didTransition was called');
+    }
+  });
+
+  bootApplication();
+});
 
 test("Actions can be handled by inherited action handlers", function() {
 
@@ -2571,4 +2599,40 @@ test("Route model hook finds the same model as a manual find", function() {
   handleURL('/post/1');
 
   equal(App.Post, Post);
+});
+
+test("Can register an implementation via Ember.Location.registerImplementation", function(){
+  Ember.TESTING_DEPRECATION = true;
+
+  var TestLocation = Ember.NoneLocation.extend({
+    implementation: 'test'
+  });
+
+  Ember.Location.registerImplementation('test', TestLocation);
+
+  Router.reopen({
+    location: 'test'
+  });
+
+  bootApplication();
+
+  equal(router.get('location.implementation'), 'test', 'custom location implementation can be registered with registerImplementation');
+
+  Ember.TESTING_DEPRECATION = false;
+});
+
+test("Ember.Location.registerImplementation is deprecated", function(){
+  Ember.ENV.RAISE_ON_DEPRECATION = true;
+
+  var TestLocation = Ember.NoneLocation.extend({
+    implementation: 'test'
+  });
+
+  try{
+    Ember.Location.registerImplementation('test', TestLocation);
+  } catch(e) {
+    equal(e.message, "Using the Ember.Location.registerImplementation is no longer supported. Register your custom location implementation with the container instead.", "deprecation warning is present");
+  }
+
+  Ember.ENV.RAISE_ON_DEPRECATION = false;
 });
